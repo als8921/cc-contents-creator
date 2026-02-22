@@ -13,12 +13,21 @@ RATIOS = {
 }
 
 
-def convert_html_to_png(html_dir: Path, width: int, height: int, scale: int = 1) -> None:
+def convert_html_to_png(project_dir: Path, width: int, height: int, scale: int = 1) -> None:
+    html_dir = project_dir / "html"
+    images_dir = project_dir / "images"
+
+    if not html_dir.exists():
+        # Fallback: look for HTML files directly in project_dir
+        html_dir = project_dir
+
     html_files = sorted(html_dir.glob("*.html"))
 
     if not html_files:
         print(f"No HTML files found in {html_dir}")
         sys.exit(1)
+
+    images_dir.mkdir(exist_ok=True)
 
     print(f"Found {len(html_files)} HTML file(s) in {html_dir}")
     print(f"Viewport: {width}x{height} (scale {scale}x → {width*scale}x{height*scale}px output)")
@@ -32,17 +41,17 @@ def convert_html_to_png(html_dir: Path, width: int, height: int, scale: int = 1)
         page = context.new_page()
 
         for html_file in html_files:
-            png_file = html_file.with_suffix(".png")
+            png_file = images_dir / html_file.with_suffix(".png").name
             file_url = html_file.resolve().as_uri()
 
             page.goto(file_url, wait_until="networkidle")
             page.screenshot(path=str(png_file))
 
-            print(f"  {html_file.name} -> {png_file.name}")
+            print(f"  {html_file.name} -> images/{png_file.name}")
 
         browser.close()
 
-    print(f"Done. {len(html_files)} PNG(s) saved to {html_dir}")
+    print(f"Done. {len(html_files)} PNG(s) saved to {images_dir}")
 
 
 def main():

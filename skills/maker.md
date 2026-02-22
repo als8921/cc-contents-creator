@@ -12,7 +12,7 @@ HTML/CSS로 슬라이드를 제작하는 디자인 담당.
 
 ## 산출물
 
-- `output/{project_name}/slide_01.html`, `slide_02.html`, ...
+- `output/{project_name}/html/slide_01.html`, `slide_02.html`, ...
 
 ## HTML 필수 규칙
 

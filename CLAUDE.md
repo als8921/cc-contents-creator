@@ -43,7 +43,7 @@
 `skills/maker.md`의 규칙을 따른다.
 
 - `plan.md`를 읽고 각 슬라이드를 HTML 파일로 제작
-- **산출물**: `output/{project_name}/slide_01.html`, `slide_02.html`, ...
+- **산출물**: `output/{project_name}/html/slide_01.html`, `slide_02.html`, ...
 
 ### STEP 4. 변환
 
