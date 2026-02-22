@@ -17,10 +17,6 @@ def convert_html_to_png(project_dir: Path, width: int, height: int, scale: int =
     html_dir = project_dir / "html"
     images_dir = project_dir / "images"
 
-    if not html_dir.exists():
-        # Fallback: look for HTML files directly in project_dir
-        html_dir = project_dir
-
     html_files = sorted(html_dir.glob("*.html"))
 
     if not html_files:
