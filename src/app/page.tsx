@@ -111,35 +111,55 @@ export default function Home() {
     }
   }
 
+  // 배치 응답에서 슬라이드별 HTML 파싱
+  function parseBatchResponse(text: string, slideIndices: number[]): Record<number, string> {
+    const result: Record<number, string> = {};
+    for (const idx of slideIndices) {
+      const pad = String(idx).padStart(2, "0");
+      const match = text.match(
+        new RegExp(`<!--\\s*SLIDE_${pad}\\s*-->([\\s\\S]*?)<!--\\s*END_SLIDE_${pad}\\s*-->`)
+      );
+      if (match) result[idx] = match[1].trim();
+    }
+    return result;
+  }
+
   async function handleMake() {
     setStep("making");
-    // null로 초기화 (아직 생성 안 된 슬라이드)
     setSlides(Array(slideCount).fill(null));
     setError("");
 
+    // 3장씩 배치로 나누기
+    const indices = Array.from({ length: slideCount }, (_, i) => i + 1);
+    const batches: number[][] = [];
+    for (let i = 0; i < indices.length; i += 3) {
+      batches.push(indices.slice(i, i + 3));
+    }
+
     try {
-      // 모든 슬라이드 병렬 생성
       await Promise.all(
-        Array.from({ length: slideCount }, async (_, i) => {
-          const slideIndex = i + 1;
+        batches.map(async (slideIndices) => {
           const res = await fetch("/api/make", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ plan, slideIndex, totalSlides: slideCount, ratio }),
+            body: JSON.stringify({ plan, slideIndices, totalSlides: slideCount, ratio }),
           });
 
           const reader = res.body!.getReader();
           const decoder = new TextDecoder();
-          let html = "";
+          let text = "";
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-            html += decoder.decode(value, { stream: true });
+            text += decoder.decode(value, { stream: true });
           }
 
+          const parsed = parseBatchResponse(text, slideIndices);
           setSlides((prev) => {
             const updated = [...prev];
-            updated[i] = html;
+            for (const [idxStr, html] of Object.entries(parsed)) {
+              updated[Number(idxStr) - 1] = html;
+            }
             return updated;
           });
         })
