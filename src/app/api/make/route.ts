@@ -1,10 +1,9 @@
 import { NextRequest } from "next/server";
 import { loadSkill } from "@/lib/skills";
 import { llm, MODEL } from "@/lib/llm";
-import { saveFile } from "@/lib/files";
 
 export async function POST(req: NextRequest) {
-  const { plan, slideIndex, totalSlides, ratio, projectName } = await req.json();
+  const { plan, slideIndex, totalSlides, ratio } = await req.json();
 
   const systemPrompt = loadSkill("maker");
   const paddedIndex = String(slideIndex).padStart(2, "0");
@@ -25,20 +24,12 @@ ${plan}`;
     ],
   });
 
-  let fullContent = "";
-
   const readable = new ReadableStream({
     async start(controller) {
       for await (const chunk of stream) {
         const text = chunk.choices[0]?.delta?.content ?? "";
-        fullContent += text;
         controller.enqueue(new TextEncoder().encode(text));
       }
-      // HTML 코드블록에서 추출
-      const htmlMatch = fullContent.match(/```html\n?([\s\S]*?)```/) ||
-                        fullContent.match(/<html[\s\S]*<\/html>/);
-      const htmlContent = htmlMatch ? (htmlMatch[1] || htmlMatch[0]).trim() : fullContent.trim();
-      saveFile(projectName, `html/slide_${paddedIndex}.html`, htmlContent);
       controller.close();
     },
   });
