@@ -32,15 +32,21 @@ HTML/CSS로 슬라이드를 제작하는 디자인 담당.
 
 ### 1. 타이포그래피
 
-**폰트 페어링** (Google Fonts 기반, 프로젝트 성격에 맞게 선택):
+**기본 폰트: Pretendard** (CDN import, 모든 슬라이드에 적용):
+
+```css
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css');
+```
+
+`font-family: 'Pretendard', -apple-system, sans-serif;`
+
+**보조 폰트 페어링** (프로젝트 성격에 맞게 선택, 영문 헤드라인 한정):
 
 | 용도 | 추천 조합 | 적합한 톤 |
 |------|-----------|-----------|
-| 기본 (한국어) | Noto Sans KR (400, 700, 900) | 범용 |
-| 모던/테크 | Space Grotesk + Noto Sans KR | 스타트업, IT |
-| 클래식/포멀 | Playfair Display + Noto Sans KR | 럭셔리, 공식 |
-| 임팩트/광고 | Bebas Neue + Noto Sans KR | 모집, 이벤트 |
-| 부드러운/감성 | Lora + Noto Sans KR | 웰니스, 라이프 |
+| 모던/테크 | Space Grotesk + Pretendard | 스타트업, IT |
+| 임팩트/광고 | Bebas Neue + Pretendard | 모집, 이벤트 |
+| 부드러운/감성 | Lora + Pretendard | 웰니스, 라이프 |
 
 **타이포 스케일** (8px 그리드 기반):
 
@@ -56,6 +62,66 @@ HTML/CSS로 슬라이드를 제작하는 디자인 담당.
 
 **텍스트 분량 제한**: 한 줄 최대 18자(제목) / 30자(본문), 본문 최대 4줄
 
+### 1-1. 텍스트 강조 기법
+
+단순 배치가 아닌 **핵심 키워드를 시각적으로 돋보이게** 해야 한다. 아래 기법 중 슬라이드 톤에 맞게 선택한다:
+
+**① 컬러 스팬 강조** (가장 범용적):
+```html
+<p class="body-text">국내 스타트업의 <span class="highlight">47%</span>가 실패한다</p>
+```
+```css
+.highlight { color: var(--primary); font-weight: 700; }
+```
+
+**② 배경 하이라이트** (마커 효과):
+```css
+.mark {
+  background: linear-gradient(transparent 60%, rgba(255, 210, 0, 0.45) 40%);
+  padding: 0 2px;
+}
+```
+
+**③ 언더라인 강조** (세련된 커스텀 밑줄):
+```css
+.underline-accent {
+  text-decoration: underline;
+  text-decoration-color: var(--primary);
+  text-decoration-thickness: 3px;
+  text-underline-offset: 5px;
+}
+```
+
+**④ 인라인 배지/태그** (수치·단어 강조):
+```html
+<span class="badge">+23%</span>
+```
+```css
+.badge {
+  display: inline-block;
+  background: var(--primary);
+  color: white;
+  font-weight: 700;
+  font-size: 0.85em;
+  padding: 2px 10px;
+  border-radius: 20px;
+  vertical-align: middle;
+}
+```
+
+**⑤ 크기 대비 강조** (같은 문장 내 크기 차이):
+```html
+<p><span class="big-num">3배</span> 더 빠른 성장</p>
+```
+```css
+.big-num { font-size: 1.6em; font-weight: 900; color: var(--primary); line-height: 1; }
+```
+
+**강조 원칙**:
+- 한 슬라이드에서 강조 요소는 **1~3개**로 제한 (전부 강조하면 아무것도 강조되지 않음)
+- 핵심 수치, 핵심 동사, 핵심 키워드에만 적용
+- 강조 기법을 한 슬라이드에 **2가지 이상 혼용하지 않는다**
+
 ### 2. 컬러 & 배경
 
 **plan.md의 컬러 팔레트를 기반으로** 아래 기법을 활용한다:
@@ -69,7 +135,9 @@ HTML/CSS로 슬라이드를 제작하는 디자인 담당.
 
 ### 3. 장식 요소 (CSS Only)
 
-슬라이드에 시각적 풍부함을 더하는 장식 요소. **반드시 CSS `::before`, `::after`, 또는 빈 `<div>`로 구현**한다:
+슬라이드에 시각적 풍부함을 더하는 장식 요소. **반드시 CSS `::before`, `::after`, 또는 빈 `<div>`로 구현**한다.
+
+**절대 금지**: 이모지(😊🔥✅❌💡 등) 또는 유니코드 아이콘 문자를 장식 목적으로 사용하지 않는다. 시각 요소는 순수 CSS 도형과 텍스트로만 구현한다.
 
 **기하학적 도형**:
 ```css
@@ -194,9 +262,9 @@ HTML/CSS로 슬라이드를 제작하는 디자인 담당.
 #### 콘텐츠 슬라이드
 - 라벨 → 제목 → 본문 순서의 명확한 시각 위계
 - 라벨은 `letter-spacing: 3-4px`, 대문자, primary 컬러
-- 핵심 수치/키워드는 **컬러 하이라이트** 또는 **배지/태그**로 강조
+- 핵심 수치/키워드는 `1-1. 텍스트 강조 기법` 중 하나를 반드시 적용
 - 리스트 항목은 카드 컴포넌트로 감싸 시각적 분리
-- 아이콘 대신 **컬러 넘버링**, **액센트 라인**, **도형 불릿** 활용
+- 아이콘·이모지 대신 **컬러 넘버링**, **액센트 라인**, **도형 불릿** 활용
 
 #### 클로징 슬라이드
 - CTA(행동 유도)를 시각적으로 가장 돋보이게
@@ -215,8 +283,8 @@ HTML/CSS로 슬라이드를 제작하는 디자인 담당.
 <head>
 <meta charset="UTF-8">
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700;900&display=swap');
-  /* 필요시 추가 폰트 import */
+  @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css');
+  /* 영문 보조 폰트 필요시 Google Fonts에서 추가 import */
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -224,7 +292,7 @@ HTML/CSS로 슬라이드를 제작하는 디자인 담당.
     width: 1080px;
     height: 1080px;   /* 4:5 비율일 경우 1350px */
     overflow: hidden;
-    font-family: 'Noto Sans KR', -apple-system, sans-serif;
+    font-family: 'Pretendard', -apple-system, sans-serif;
   }
 
   .card {
@@ -292,3 +360,17 @@ HTML/CSS로 슬라이드를 제작하는 디자인 담당.
 - 프로젝트 톤에 맞는 비주얼 스타일을 선택하고, **전체 슬라이드에 일관되게** 적용한다
 - 장식 요소는 콘텐츠를 방해하지 않도록 **낮은 불투명도 + blur**로 배경에 배치
 - 각 HTML 파일은 완전히 독립적이어야 한다 (다른 파일에 의존하지 않음)
+
+## AI 느낌 제거 체크리스트
+
+슬라이드 완성 후 아래 항목을 점검한다. 하나라도 해당되면 수정한다:
+
+| 금지 패턴 | 대안 |
+|-----------|------|
+| 이모지/아이콘 문자 사용 (✅❌💡🔥 등) | CSS 도형, 넘버링, 컬러 라인으로 대체 |
+| 모든 항목을 같은 스타일로 나열 | 핵심 1~3개를 강조 기법으로 차별화 |
+| "핵심은 바로", "중요한 점은" 같은 AI 투의 도입부 문구 | plan.md 텍스트를 그대로 사용 |
+| 지나치게 균일한 좌우 대칭 레이아웃 | 비대칭 여백, 텍스트 크기 대비로 긴장감 부여 |
+| 배경과 텍스트 색이 흐릿하게 구분 | 명암비 최소 4.5:1 확보, 필요시 텍스트 오버레이 추가 |
+| 중앙 정렬 텍스트 남발 | 좌측 정렬 기본, 커버·CTA만 중앙 정렬 |
+| 제목과 본문이 같은 굵기 | 제목 900, 본문 400~500으로 굵기 대비 극대화 |
