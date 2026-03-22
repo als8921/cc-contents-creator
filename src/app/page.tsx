@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 type Step = "idle" | "planning" | "confirming" | "making" | "viewing";
 type Ratio = "1:1" | "4:5" | "16:9";
@@ -12,14 +13,47 @@ const RATIO_INFO: Record<Ratio, { label: string; width: number; height: number }
 };
 
 const SLIDE_COUNTS = [5, 6, 7, 8];
-const THUMB_W = 152;
 
+// ── Session Storage ──────────────────────────────────────────────────────────
+const SK = {
+  content:     "cnm_content",
+  slideCount:  "cnm_slideCount",
+  ratio:       "cnm_ratio",
+  projectName: "cnm_projectName",
+  plan:        "cnm_plan",
+  slides:      "cnm_slides",
+};
+
+function ssGet<T>(key: string, fallback: T): T {
+  try {
+    const v = sessionStorage.getItem(key);
+    return v !== null ? (JSON.parse(v) as T) : fallback;
+  } catch { return fallback; }
+}
+
+function ssSave(data: Record<string, unknown>) {
+  for (const [key, value] of Object.entries(data)) {
+    sessionStorage.setItem(key, JSON.stringify(value));
+  }
+}
+
+function ssClear() {
+  Object.values(SK).forEach((k) => sessionStorage.removeItem(k));
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 function extractHtml(raw: string): string {
   const match = raw.match(/```html\n?([\s\S]*?)```/) || raw.match(/(<html[\s\S]*<\/html>)/);
   return match ? (match[1] || match[0]).trim() : raw.trim();
 }
 
-// 슬라이드를 비율에 맞게 렌더링하는 iframe 컴포넌트
+function generateProjectName(text: string): string {
+  const safe = text.trim().split(/\s+/).slice(0, 3).join("_")
+    .replace(/[^a-zA-Z0-9가-힣_]/g, "").toLowerCase();
+  return safe || `project_${Date.now()}`;
+}
+
+// ── SlideIframe ───────────────────────────────────────────────────────────────
 function SlideIframe({
   html,
   slideW,
@@ -30,7 +64,7 @@ function SlideIframe({
   html: string;
   slideW: number;
   slideH: number;
-  displayW: number; // 화면에 보여줄 너비(px)
+  displayW: number;
   title: string;
 }) {
   const displayH = Math.round(displayW * (slideH / slideW));
@@ -57,36 +91,171 @@ function SlideIframe({
   );
 }
 
-export default function Home() {
-  const [step, setStep] = useState<Step>("idle");
-  const [content, setContent] = useState("");
-  const [slideCount, setSlideCount] = useState(6);
-  const [ratio, setRatio] = useState<Ratio>("4:5");
-  const [projectName, setProjectName] = useState("");
-  const [plan, setPlan] = useState("");
-  const [slides, setSlides] = useState<(string | null)[]>([]);
+// ── Main Component ────────────────────────────────────────────────────────────
+function CardNewsMaker() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // 새로고침 시 첫 렌더부터 올바른 값을 쓰도록 sessionStorage에서 지연 초기화
+  const [step, setStep] = useState<Step>(() => {
+    if (typeof window === "undefined") return "idle";
+    return (new URLSearchParams(window.location.search).get("step") ?? "idle") as Step;
+  });
+  const [content, setContent] = useState(() =>
+    typeof window === "undefined" ? "" : ssGet(SK.content, "")
+  );
+  const [slideCount, setSlideCount] = useState(() =>
+    typeof window === "undefined" ? 6 : ssGet(SK.slideCount, 6)
+  );
+  const [ratio, setRatio] = useState<Ratio>(() =>
+    typeof window === "undefined" ? "4:5" : ssGet<Ratio>(SK.ratio, "4:5")
+  );
+  const [projectName, setProjectName] = useState(() =>
+    typeof window === "undefined" ? "" : ssGet(SK.projectName, "")
+  );
+  const [plan, setPlan] = useState(() =>
+    typeof window === "undefined" ? "" : ssGet(SK.plan, "")
+  );
+  const [slides, setSlides] = useState<(string | null)[]>(() => {
+    if (typeof window === "undefined") return [];
+    const urlStep = new URLSearchParams(window.location.search).get("step");
+    return urlStep === "viewing" ? ssGet<(string | null)[]>(SK.slides, []) : [];
+  });
   const [selectedSlide, setSelectedSlide] = useState(0);
   const [editingSlide, setEditingSlide] = useState<number | null>(null);
   const [editContent, setEditContent] = useState("");
   const [error, setError] = useState("");
   const [pdfLoading, setPdfLoading] = useState(false);
   const [customSlide, setCustomSlide] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(176);
+  const [slideContainerSize, setSlideContainerSize] = useState({ w: 800, h: 600 });
+  const slideContainerRef = useRef<HTMLDivElement>(null);
 
-  const { width: slideW, height: slideH } = RATIO_INFO[ratio];
+  // 슬라이드 컨테이너 크기 측정 (높이 기반으로 displayW 계산에 사용)
+  useEffect(() => {
+    const el = slideContainerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => {
+      setSlideContainerSize({
+        w: entry.contentRect.width,
+        h: entry.contentRect.height,
+      });
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [step]);
 
-  function generateProjectName(text: string): string {
-    const safe = text.trim().split(/\s+/).slice(0, 3).join("_")
-      .replace(/[^a-zA-Z0-9가-힣_]/g, "").toLowerCase();
-    return safe || `project_${Date.now()}`;
+  // 사이드바 드래그 리사이즈
+  function handleSidebarDragStart(e: React.MouseEvent) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+
+    function onMove(e: MouseEvent) {
+      const next = Math.max(120, Math.min(400, startWidth + e.clientX - startX));
+      setSidebarWidth(next);
+    }
+    function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    }
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
   }
 
+  // 생성 중에는 URL 동기화 효과가 상태를 덮어쓰지 않도록 막는 ref
+  const generatingRef = useRef(false);
+
+  // ── URL ↔ 상태 동기화 (뒤로가기/앞으로가기) ──────────────────────────────
+  useEffect(() => {
+    if (generatingRef.current) return;
+
+    const urlStep = (searchParams.get("step") ?? "idle") as Step;
+
+    // 과도적 상태는 직접 접근 불가 → 적절한 단계로 리다이렉트
+    if (urlStep === "planning") {
+      router.replace("/?step=idle");
+      setStep("idle");
+      return;
+    }
+    if (urlStep === "making") {
+      const storedSlides = ssGet<(string | null)[]>(SK.slides, []);
+      if (storedSlides.length > 0 && storedSlides.every(Boolean)) {
+        router.replace("/?step=viewing");
+        setSlides(storedSlides);
+        setStep("viewing");
+      } else {
+        router.replace("/?step=confirming");
+        setPlan(ssGet(SK.plan, ""));
+        setStep("confirming");
+      }
+      return;
+    }
+
+    // 공통 기본 상태 복원
+    setContent(ssGet(SK.content, ""));
+    setSlideCount(ssGet(SK.slideCount, 6));
+    setRatio(ssGet<Ratio>(SK.ratio, "4:5"));
+    setProjectName(ssGet(SK.projectName, ""));
+
+    if (urlStep === "confirming") {
+      setPlan(ssGet(SK.plan, ""));
+    } else if (urlStep === "viewing") {
+      setPlan(ssGet(SK.plan, ""));
+      setSlides(ssGet(SK.slides, []));
+      setSelectedSlide(0);
+      setEditingSlide(null);
+    }
+
+    setStep(urlStep);
+  }, [searchParams, router]);
+
+  // idle 입력값 자동 저장 (뒤로가기 후 복원용)
+  useEffect(() => {
+    if (step !== "idle") return;
+    ssSave({ [SK.content]: content });
+  }, [content, step]);
+
+  useEffect(() => {
+    if (step !== "idle") return;
+    ssSave({ [SK.slideCount]: slideCount });
+  }, [slideCount, step]);
+
+  useEffect(() => {
+    if (step !== "idle") return;
+    ssSave({ [SK.ratio]: ratio });
+  }, [ratio, step]);
+
+  useEffect(() => {
+    if (step !== "idle") return;
+    ssSave({ [SK.projectName]: projectName });
+  }, [projectName, step]);
+
+  // ── 단계 이동 헬퍼 ────────────────────────────────────────────────────────
+  function goTo(s: Step, replace = false) {
+    const url = s === "idle" ? "/" : `/?step=${s}`;
+    if (replace) router.replace(url);
+    else router.push(url);
+    setStep(s);
+  }
+
+  // ── 기획 시작 ─────────────────────────────────────────────────────────────
   async function handleStart() {
     if (!content.trim()) return;
     const pName = projectName || generateProjectName(content);
     setProjectName(pName);
-    setStep("planning");
-    setPlan("");
     setError("");
+    setPlan("");
+
+    ssSave({
+      [SK.content]: content,
+      [SK.slideCount]: slideCount,
+      [SK.ratio]: ratio,
+      [SK.projectName]: pName,
+    });
+
+    generatingRef.current = true;
+    goTo("planning", true); // idle을 planning으로 replace (뒤로가기 히스토리 미추가)
 
     try {
       const res = await fetch("/api/plan", {
@@ -104,14 +273,18 @@ export default function Home() {
         accumulated += decoder.decode(value, { stream: true });
         setPlan(accumulated);
       }
-      setStep("confirming");
+
+      ssSave({ [SK.plan]: accumulated });
+      generatingRef.current = false;
+      goTo("confirming"); // confirming push → 뒤로가기로 idle로 돌아올 수 있음
     } catch (e) {
+      generatingRef.current = false;
       setError(String(e));
-      setStep("idle");
+      goTo("idle", true);
     }
   }
 
-  // 배치 응답에서 슬라이드별 HTML 파싱
+  // ── 슬라이드 배치 파싱 ────────────────────────────────────────────────────
   function parseBatchResponse(text: string, slideIndices: number[]): Record<number, string> {
     const result: Record<number, string> = {};
     for (const idx of slideIndices) {
@@ -124,17 +297,26 @@ export default function Home() {
     return result;
   }
 
+  // ── 슬라이드 제작 ─────────────────────────────────────────────────────────
   async function handleMake() {
-    setStep("making");
-    setSlides(Array(slideCount).fill(null));
+    const initialSlides: (string | null)[] = Array(slideCount).fill(null);
+    setSlides(initialSlides);
     setError("");
 
-    // 3장씩 배치로 나누기
+    ssSave({ [SK.plan]: plan });
+
     const indices = Array.from({ length: slideCount }, (_, i) => i + 1);
     const batches: number[][] = [];
     for (let i = 0; i < indices.length; i += 3) {
       batches.push(indices.slice(i, i + 3));
     }
+
+    generatingRef.current = true;
+    goTo("making", true); // confirming을 making으로 replace
+
+    // setSlides updater는 React 렌더 시점에 실행되므로
+    // 결과를 별도 객체에 직접 수집해야 ssSave 시점에 올바른 값을 가짐
+    const allParsed: Record<number, string> = {};
 
     try {
       await Promise.all(
@@ -155,6 +337,8 @@ export default function Home() {
           }
 
           const parsed = parseBatchResponse(text, slideIndices);
+          Object.assign(allParsed, parsed);
+
           setSlides((prev) => {
             const updated = [...prev];
             for (const [idxStr, html] of Object.entries(parsed)) {
@@ -165,19 +349,28 @@ export default function Home() {
         })
       );
 
+      const finalSlides = Array.from({ length: slideCount }, (_, i) => allParsed[i + 1] ?? null);
+      ssSave({ [SK.slides]: finalSlides });
+      setSlides(finalSlides); // 상태도 확실하게 동기화
+
+      generatingRef.current = false;
       setSelectedSlide(0);
       setEditingSlide(null);
-      setStep("viewing");
+      goTo("viewing"); // viewing push → 뒤로가기로 confirming으로 돌아올 수 있음
     } catch (e) {
+      generatingRef.current = false;
       setError(String(e));
+      goTo("confirming", true);
     }
   }
+
+  // ── PDF 다운로드 ──────────────────────────────────────────────────────────
+  const { width: slideW, height: slideH } = RATIO_INFO[ratio];
 
   async function handleDownloadPDF() {
     setPdfLoading(true);
     setError("");
     try {
-      const { default: html2canvas } = await import("html2canvas");
       const { default: jsPDF } = await import("jspdf");
 
       const isLandscape = ratio === "16:9";
@@ -195,27 +388,22 @@ export default function Home() {
       for (let i = 0; i < validSlides.length; i++) {
         const html = extractHtml(validSlides[i]);
 
-        const iframe = document.createElement("iframe");
-        iframe.style.cssText = `position:fixed;top:-9999px;left:-9999px;width:${slideW}px;height:${slideH}px;border:none;`;
-        document.body.appendChild(iframe);
-
-        await new Promise<void>((resolve) => {
-          iframe.onload = () => resolve();
-          iframe.srcdoc = html;
+        const res = await fetch("/api/screenshot", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ html, width: slideW, height: slideH }),
         });
+        if (!res.ok) throw new Error(`스크린샷 실패: ${res.status}`);
 
-        const canvas = await html2canvas(iframe.contentDocument!.documentElement, {
-          width: slideW,
-          height: slideH,
-          scale: 1,
-          useCORS: true,
-          allowTaint: true,
-          logging: false,
+        const blob = await res.blob();
+        const dataUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsDataURL(blob);
         });
-        document.body.removeChild(iframe);
 
         if (i > 0) pdf.addPage([pdfW, pdfH], isLandscape ? "landscape" : "portrait");
-        pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, pdfW, pdfH);
+        pdf.addImage(dataUrl, "PNG", 0, 0, pdfW, pdfH);
       }
 
       pdf.save(`${projectName}.pdf`);
@@ -226,6 +414,7 @@ export default function Home() {
     }
   }
 
+  // ── 슬라이드 편집 ─────────────────────────────────────────────────────────
   function startEdit(index: number) {
     setEditingSlide(index);
     setEditContent(extractHtml(slides[index] ?? ""));
@@ -236,62 +425,77 @@ export default function Home() {
     const updated = [...slides];
     updated[editingSlide] = editContent;
     setSlides(updated);
+    ssSave({ [SK.slides]: updated });
     setEditingSlide(null);
   }
 
+  // ── 전체 초기화 ───────────────────────────────────────────────────────────
   function resetAll() {
-    setStep("idle");
+    ssClear();
     setContent("");
     setPlan("");
     setSlides([]);
     setProjectName("");
     setEditingSlide(null);
     setError("");
+    goTo("idle");
   }
 
   const completedCount = slides.filter(Boolean).length;
 
-  // ── Viewing ─────────────────────────────────────────────────────────────────
+  // ── Viewing ───────────────────────────────────────────────────────────────
   if (step === "viewing") {
     return (
       <div className="flex h-screen bg-gray-100">
         {/* 사이드바 */}
-        <aside className="w-44 bg-white border-r border-gray-200 flex flex-col shrink-0">
+        <aside
+          style={{ width: sidebarWidth }}
+          className="bg-white border-r border-gray-200 flex flex-col shrink-0"
+        >
           <div className="px-4 py-3 border-b border-gray-100">
             <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">슬라이드</span>
           </div>
           <div className="flex-1 overflow-y-auto p-2 space-y-2">
-            {slides.map((html, idx) => (
-              <button
-                key={idx}
-                onClick={() => { setSelectedSlide(idx); setEditingSlide(null); }}
-                className={`w-full rounded-lg overflow-hidden border-2 transition-all ${
-                  selectedSlide === idx ? "border-blue-500 shadow-md" : "border-transparent hover:border-gray-300"
-                }`}
-              >
-                <div className="text-xs text-gray-400 py-0.5 bg-gray-50 text-center border-b border-gray-100">
-                  {idx + 1}
-                </div>
-                {html ? (
-                  <SlideIframe
-                    html={extractHtml(html)}
-                    slideW={slideW}
-                    slideH={slideH}
-                    displayW={THUMB_W}
-                    title={`thumb-${idx + 1}`}
-                  />
-                ) : (
-                  <div
-                    style={{ width: THUMB_W, height: Math.round(THUMB_W * slideH / slideW) }}
-                    className="bg-gray-100 flex items-center justify-center text-xs text-gray-400"
-                  >
-                    생성 중...
+            {slides.map((html, idx) => {
+              const thumbW = sidebarWidth - 16;
+              return (
+                <button
+                  key={idx}
+                  onClick={() => { setSelectedSlide(idx); setEditingSlide(null); }}
+                  className={`w-full rounded-lg overflow-hidden border-2 transition-all ${
+                    selectedSlide === idx ? "border-blue-500 shadow-md" : "border-transparent hover:border-gray-300"
+                  }`}
+                >
+                  <div className="text-xs text-gray-400 py-0.5 bg-gray-50 text-center border-b border-gray-100">
+                    {idx + 1}
                   </div>
-                )}
-              </button>
-            ))}
+                  {html ? (
+                    <SlideIframe
+                      html={extractHtml(html)}
+                      slideW={slideW}
+                      slideH={slideH}
+                      displayW={thumbW}
+                      title={`thumb-${idx + 1}`}
+                    />
+                  ) : (
+                    <div
+                      style={{ width: thumbW, height: Math.round(thumbW * slideH / slideW) }}
+                      className="bg-gray-100 flex items-center justify-center text-xs text-gray-400"
+                    >
+                      생성 중...
+                    </div>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </aside>
+
+        {/* 드래그 핸들 */}
+        <div
+          onMouseDown={handleSidebarDragStart}
+          className="w-1 hover:w-1.5 bg-gray-200 hover:bg-blue-400 cursor-col-resize shrink-0 transition-all"
+        />
 
         {/* 메인 */}
         <div className="flex-1 flex flex-col min-w-0">
@@ -317,8 +521,9 @@ export default function Home() {
             <div className="mx-6 mt-4 bg-red-50 border border-red-200 text-red-700 rounded-lg p-3 text-sm">{error}</div>
           )}
 
-          <main className="flex-1 overflow-y-auto p-8">
-            {editingSlide !== null ? (
+          {editingSlide !== null ? (
+            // 편집 모드: 스크롤 가능
+            <main className="flex-1 overflow-y-auto p-8">
               <div className="max-w-5xl mx-auto space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="font-semibold text-gray-800">슬라이드 {editingSlide + 1} 편집</h3>
@@ -343,62 +548,72 @@ export default function Home() {
                       html={editContent}
                       slideW={slideW}
                       slideH={slideH}
-                      displayW={Math.round(600 * slideW / slideH) > 600 ? 600 : Math.round(600 * slideW / slideH)}
+                      displayW={Math.min(600, Math.round(600 * slideW / slideH))}
                       title="edit-preview"
                     />
                   </div>
                 </div>
               </div>
-            ) : (
-              <div className="max-w-2xl mx-auto space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-semibold text-gray-800">
-                    슬라이드 {selectedSlide + 1} / {slides.length}
-                  </h3>
-                  <button onClick={() => startEdit(selectedSlide)} className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">
-                    HTML 편집
-                  </button>
-                </div>
-
-                <div className="rounded-xl overflow-hidden border border-gray-100 shadow-sm">
-                  {slides[selectedSlide] ? (
-                    <SlideIframe
-                      html={extractHtml(slides[selectedSlide]!)}
-                      slideW={slideW}
-                      slideH={slideH}
-                      displayW={672}
-                      title={`slide-${selectedSlide + 1}`}
-                    />
-                  ) : (
-                    <div className="flex items-center justify-center h-64 text-gray-400 text-sm">생성 중...</div>
-                  )}
-                </div>
-
-                <div className="flex justify-between">
-                  <button
-                    onClick={() => setSelectedSlide((s) => Math.max(0, s - 1))}
-                    disabled={selectedSlide === 0}
-                    className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 transition-colors"
-                  >
-                    ← 이전
-                  </button>
-                  <button
-                    onClick={() => setSelectedSlide((s) => Math.min(slides.length - 1, s + 1))}
-                    disabled={selectedSlide === slides.length - 1}
-                    className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 transition-colors"
-                  >
-                    다음 →
-                  </button>
-                </div>
+            </main>
+          ) : (
+            // 뷰어 모드: 높이를 꽉 채우는 레이아웃
+            <main className="flex-1 overflow-hidden flex flex-col min-h-0 px-6 pt-4 pb-4">
+              <div className="flex items-center justify-between mb-3 shrink-0">
+                <h3 className="font-semibold text-gray-800">
+                  슬라이드 {selectedSlide + 1} / {slides.length}
+                </h3>
+                <button onClick={() => startEdit(selectedSlide)} className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">
+                  HTML 편집
+                </button>
               </div>
-            )}
-          </main>
+
+              {/* 슬라이드 컨테이너: 남은 높이를 모두 사용 */}
+              <div ref={slideContainerRef} className="flex-1 min-h-0 flex items-center justify-center">
+                {slides[selectedSlide] ? (() => {
+                  const displayW = Math.min(
+                    slideContainerSize.w,
+                    Math.floor(slideContainerSize.h * (slideW / slideH))
+                  );
+                  return (
+                    <div className="rounded-xl overflow-hidden border border-gray-100 shadow-sm">
+                      <SlideIframe
+                        html={extractHtml(slides[selectedSlide]!)}
+                        slideW={slideW}
+                        slideH={slideH}
+                        displayW={displayW}
+                        title={`slide-${selectedSlide + 1}`}
+                      />
+                    </div>
+                  );
+                })() : (
+                  <div className="flex items-center justify-center h-64 text-gray-400 text-sm">생성 중...</div>
+                )}
+              </div>
+
+              <div className="flex justify-between mt-3 shrink-0">
+                <button
+                  onClick={() => setSelectedSlide((s) => Math.max(0, s - 1))}
+                  disabled={selectedSlide === 0}
+                  className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 transition-colors"
+                >
+                  ← 이전
+                </button>
+                <button
+                  onClick={() => setSelectedSlide((s) => Math.min(slides.length - 1, s + 1))}
+                  disabled={selectedSlide === slides.length - 1}
+                  className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 transition-colors"
+                >
+                  다음 →
+                </button>
+              </div>
+            </main>
+          )}
         </div>
       </div>
     );
   }
 
-  // ── 나머지 단계 ──────────────────────────────────────────────────────────────
+  // ── 나머지 단계 ───────────────────────────────────────────────────────────
   return (
     <main className="max-w-3xl mx-auto px-4 py-12">
       <h1 className="text-3xl font-bold text-gray-900 mb-2">카드뉴스 메이커</h1>
@@ -528,7 +743,7 @@ export default function Home() {
           />
           <div className="flex gap-3">
             <button
-              onClick={() => setStep("idle")}
+              onClick={() => goTo("idle")}
               className="flex-1 py-3 border border-gray-200 text-gray-600 rounded-xl font-medium hover:bg-gray-50 transition-colors"
             >
               다시 입력
@@ -586,5 +801,14 @@ export default function Home() {
         </div>
       )}
     </main>
+  );
+}
+
+// useSearchParams는 Suspense 경계가 필요
+export default function Page() {
+  return (
+    <Suspense>
+      <CardNewsMaker />
+    </Suspense>
   );
 }
