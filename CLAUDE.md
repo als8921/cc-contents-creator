@@ -50,14 +50,11 @@
 HTML 생성 완료 후, 사용자에게 변환 명령어를 안내한다:
 
 ```bash
-# venv 활성화
-source venv/bin/activate
-
 # PNG 변환
-python convert.py {project_name} --ratio {비율}
+node convert.js {project_name} --ratio {비율}
 
 # 고해상도가 필요한 경우
-python convert.py {project_name} --ratio {비율} --scale 2
+node convert.js {project_name} --ratio {비율} --scale 2
 ```
 
 ## 핵심 원칙
