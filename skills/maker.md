@@ -13,6 +13,7 @@ HTML/CSS로 슬라이드를 제작하는 디자인 담당.
 ## 산출물
 
 - `output/{project_name}/html/slide_01.html`, `slide_02.html`, ...
+- 파일명은 **2자리 숫자로 패딩** (01, 02, ..., 10, 11, ...)
 
 ## HTML 필수 규칙
 
@@ -39,6 +40,26 @@ HTML/CSS로 슬라이드를 제작하는 디자인 담당.
 ```
 
 `font-family: 'Pretendard', -apple-system, sans-serif;`
+
+**코드 슬라이드용 폰트: JetBrains Mono** (코드 블록이 있는 슬라이드에만 추가):
+
+```css
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
+```
+
+```css
+.code-block {
+  background: #F1F3F5;
+  border-radius: 12px;
+  padding: 32px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 20px;
+  line-height: 1.5;
+  color: #1A1A2E;
+  overflow: hidden;
+  white-space: pre-wrap;
+}
+```
 
 **보조 폰트 페어링** (프로젝트 성격에 맞게 선택, 영문 헤드라인 한정):
 
@@ -212,12 +233,11 @@ HTML/CSS로 슬라이드를 제작하는 디자인 담당.
   box-shadow: 0 4px 24px rgba(0,0,0,0.06);
 }
 
-/* 강조 카드 (컬러 보더) */
+/* 강조 카드 */
 .accent-card {
   background: #ffffff;
   border-radius: 20px;
   padding: 32px;
-  border-left: 5px solid var(--primary);
   box-shadow: 0 2px 16px rgba(0,0,0,0.04);
 }
 
@@ -252,6 +272,20 @@ HTML/CSS로 슬라이드를 제작하는 디자인 담당.
 | **그라데이션 메시** | 유기적 색상 흐름, 블롭, 부드러운 전환 | 크리에이티브, 아트 |
 
 ### 6. 슬라이드 타입별 가이드
+
+#### 16:9 슬라이드 레이아웃 패턴
+
+16:9 비율(1920×1080)은 교육/발표 용도로, 아래 패턴을 활용한다:
+
+**개념 설명**: 좌측 60% 제목+본문, 우측 40% 강조 박스 또는 도식
+**비교**: 제목 상단 + 2~3컬럼 비교 카드 (flexbox), 각 카드 배경색 구분
+**다이어그램**: CSS flexbox/grid로 박스+화살표(`→`, `↓`) 구성, 각 박스에 고유 클래스명
+**코드 예시**: 제목 상단 + `.code-block` + 우측 또는 하단에 설명 텍스트
+**리스트**: 제목 상단 + 넘버링 카드 컴포넌트, 항목 간 충분한 간격
+**인용/강조**: 큰 따옴표 장식(CSS `::before`) + 인용문 36~48px
+**퀴즈/질문**: 큰 질문 텍스트(40px) + 선택지를 카드 형태로 배치
+
+---
 
 #### 커버 슬라이드
 - 히어로 제목을 **가장 크게** (64-72px), 시각적 임팩트 극대화
@@ -288,22 +322,23 @@ HTML/CSS로 슬라이드를 제작하는 디자인 담당.
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
-  body {
+  html, body {
     width: 1080px;
     height: 1080px;   /* 4:5 비율일 경우 1350px */
     overflow: hidden;
+    background: /* ★ 반드시 .card 배경의 지배적인 색상으로 설정. transparent 사용 금지 */;
     font-family: 'Pretendard', -apple-system, sans-serif;
   }
 
   .card {
-    width: 100%;
-    height: 100%;
+    position: fixed;  /* ★ 뷰포트를 완전히 덮어 가장자리 띠 원천 차단 */
+    inset: 0;
     padding: 80px;
     display: flex;
     flex-direction: column;
     justify-content: center;
-    position: relative;
     overflow: hidden;  /* 장식 요소가 카드 밖으로 나가지 않도록 */
+    /* border, border-radius, outline 사용 금지 */
   }
 </style>
 </head>
@@ -320,6 +355,70 @@ HTML/CSS로 슬라이드를 제작하는 디자인 담당.
 ---
 
 ## CSS 작성 규칙
+
+### 가장자리 띠(Border Stripe) 방지
+
+슬라이드 가장자리에 띠가 생기는 원인과 방지법:
+
+**근본 해결책 — `.card`에 `position: fixed; inset: 0` 사용**:
+
+```css
+.card {
+  position: fixed;   /* ← 핵심: 뷰포트를 완전히 덮어 배경이 새어나올 공간 제거 */
+  inset: 0;          /* top: 0; right: 0; bottom: 0; left: 0 과 동일 */
+  padding: 80px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+}
+```
+
+`position: fixed; inset: 0`을 사용하면 `width: 100%; height: 100%`보다 강력하게 뷰포트를 덮기 때문에 서브픽셀 렌더링으로 인한 1px 틈도 발생하지 않는다.
+
+**`html, body` 배경색을 `.card`와 반드시 일치**:
+
+```css
+/* 예: .card 배경이 그라데이션일 때, 시작 색을 body에도 지정 */
+html, body { background: #1a1a2e; }    /* .card 배경 시작 색상과 동일 */
+.card { background: linear-gradient(135deg, #1a1a2e, #16213e); }
+
+/* .card 배경이 단색일 때 */
+html, body { background: #ffffff; }
+.card { background: #ffffff; }
+```
+
+`background: transparent`는 사용하지 않는다. `html, body`에 `.card`의 **지배적인 배경색**(그라데이션이면 시작 색)을 항상 설정해야 한다.
+
+**금지 사항** (가장자리 띠의 원인):
+```css
+/* 금지 */
+html, body { background: transparent; } /* 서브픽셀 틈에서 흰색/검정 노출 */
+.card { border: 1px solid ...; }        /* .card에 직접 border 사용 */
+.card { border-radius: 20px; }          /* .card에 border-radius → 모서리 빈틈 */
+.card { outline: ...; }                 /* outline도 동일 */
+```
+
+**글래스모피즘 내부 카드의 border 처리**:
+- `border: 1px solid rgba(255,255,255,0.18)`는 `.glass-card` 같은 **내부 카드**에만 사용
+- `.card` 최상위 컨테이너에는 절대 사용하지 않는다
+
+---
+
+### border-left 사용 금지
+
+**`border-left`(좌측 띠)를 카드나 컨테이너에 사용하지 않는다.** PNG 변환 시 의도치 않은 띠가 렌더링되어 디자인 품질을 떨어뜨린다. 트랙/카테고리 구분이 필요하면 **라벨 텍스트 컬러**, **배경색 차이**, **넘버링** 등으로 대체한다.
+
+```css
+/* 금지 */
+.track { border-left: 5px solid var(--primary); }
+
+/* 올바른 방법 — 라벨 컬러로 구분 */
+.track-label-backend { color: #1A1A1A; }
+.track-label-frontend { color: var(--primary); }
+```
+
+---
 
 ### nth-child / nth-of-type 사용 금지
 
