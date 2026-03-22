@@ -47,19 +47,81 @@ HTML/CSS로 슬라이드를 제작하는 디자인 담당.
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
 ```
 
+**코드 블록 구현 규칙**:
+
+코드 블록은 반드시 **터미널/에디터 윈도우 스타일**로 구현한다. 단순 `<div>` 배경이 아닌, 탭 바(dot 3개) + 코드 영역 구조를 사용한다.
+
+```html
+<div class="code-block-wrap">
+  <div class="code-tab">
+    <div class="tab-dot tab-dot-red"></div>
+    <div class="tab-dot tab-dot-yellow"></div>
+    <div class="tab-dot tab-dot-green"></div>
+  </div>
+  <div class="code-block"><span class="code-comment">// Before</span>
+&lt;a href="/home"&gt;홈&lt;/a&gt;</div>
+  <div class="code-divider"></div>
+  <div class="code-block"><span class="code-comment">// After</span>
+<span class="code-import">import</span> Link <span class="code-import">from</span> <span class="code-string">'next/link'</span>
+&lt;Link href="/home"&gt;홈&lt;/Link&gt;</div>
+</div>
+```
+
 ```css
+.code-block-wrap {
+  background: #0F0F1A;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+.code-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 20px;
+  background: rgba(255,255,255,0.04);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.tab-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.tab-dot-red { background: #FF5F57; }
+.tab-dot-yellow { background: #FFBD2E; }
+.tab-dot-green { background: #28CA42; }
+
 .code-block {
-  background: #F1F3F5;
-  border-radius: 12px;
-  padding: 32px;
+  padding: 28px 32px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 20px;
-  line-height: 1.5;
-  color: #1A1A2E;
-  overflow: hidden;
-  white-space: pre-wrap;
+  line-height: 1.7;
+  white-space: pre;
+  color: #E2E8F0;
+}
+
+/* 코드 구문 강조 색상 */
+.code-comment { color: #6B7280; }
+.code-tag { color: #F472B6; }
+.code-attr { color: #60A5FA; }
+.code-string { color: #34D399; }
+.code-import { color: #A78BFA; }
+.code-component { color: #00D4AA; }
+
+/* Before/After 구분선 */
+.code-divider {
+  height: 1px;
+  background: rgba(255,255,255,0.06);
+  margin: 0 32px;
 }
 ```
+
+**코드 블록 금지 사항**:
+- `display: flex; flex-direction: column`을 `.code-block`에 사용하지 않는다 (인라인 `<span>`이 세로로 쌓임)
+- `white-space: pre-wrap`을 사용하지 않는다 (좁은 영역에서 의도치 않은 줄바꿈 발생)
+- 반드시 `white-space: pre`를 사용한다
 
 **폰트 규칙**: 코드 블록을 제외한 모든 텍스트는 **Pretendard만 사용**한다. 영문 헤드라인 포함, 보조 폰트를 추가하지 않는다.
 
