@@ -233,7 +233,7 @@ function CardNewsMaker() {
     typeof window === "undefined" ? "#FFFFFF" : ssGet(SK.bgColor, "#FFFFFF")
   );
   const [primaryColor, setPrimaryColor] = useState(() =>
-    typeof window === "undefined" ? "#2563EB" : ssGet(SK.primaryColor, "#F97316")
+    typeof window === "undefined" ? "#F97316" : ssGet(SK.primaryColor, "#F97316")
   );
   const [plan, setPlan] = useState(() =>
     typeof window === "undefined" ? "" : ssGet(SK.plan, "")
