@@ -465,9 +465,10 @@ function CardNewsMaker() {
     ssSave({ [SK.plan]: plan });
 
     const indices = Array.from({ length: slideCount }, (_, i) => i + 1);
+    const batchSize = mode === "cli" ? 5 : 3;
     const batches: number[][] = [];
-    for (let i = 0; i < indices.length; i += 3) {
-      batches.push(indices.slice(i, i + 3));
+    for (let i = 0; i < indices.length; i += batchSize) {
+      batches.push(indices.slice(i, i + batchSize));
     }
 
     generatingRef.current = true;
