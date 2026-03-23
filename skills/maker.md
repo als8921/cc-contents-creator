@@ -201,12 +201,35 @@ HTML/CSS로 슬라이드를 제작하는 디자인 담당.
 
 ### 2. 컬러 & 배경
 
-**plan.md의 컬러 팔레트를 기반으로** 아래 기법을 활용한다:
+**plan.md의 컬러 팔레트(배경색, 주요색)를 기반으로** 아래 기법을 활용한다.
 
-- **그라데이션**: `linear-gradient` 또는 `radial-gradient`로 깊이감 부여
-  - 각도: 135deg(기본), 150deg, 180deg 등 변형 활용
-  - 3색 그라데이션으로 풍부한 색감 가능
-- **메시 그라데이션**: 여러 `radial-gradient`를 겹쳐 유기적 색감 표현
+**기본 배경 패턴: 흰색 + 주요색 블러**
+
+배경은 흰색(또는 plan.md에 지정된 밝은 배경색) 바탕에, 주요색을 `filter: blur()`로 은은하게 깔아 깊이감을 준다:
+
+```css
+/* 배경 블러 효과 — 주요색 원형을 크게 블러 처리 */
+.bg-blur {
+  position: absolute;
+  width: 500px; height: 500px;
+  border-radius: 50%;
+  background: rgba(var(--primary-rgb), 0.08);
+  filter: blur(80px);
+  z-index: 0;
+}
+
+/* 예시: 우상단에 배치 */
+.bg-blur-1 { top: -150px; right: -100px; }
+/* 예시: 좌하단에 배치 */
+.bg-blur-2 { bottom: -200px; left: -150px; opacity: 0.5; }
+```
+
+- 블러 원형은 **1~3개**, 각각 위치·크기·투명도를 다르게 배치
+- 배경이 흰색일 때 블러 불투명도는 **0.05~0.12** 범위가 적절
+- 블러 요소는 반드시 `z-index: 0`, 콘텐츠는 `position: relative; z-index: 1` 이상
+
+**보조 기법** (블러와 함께 활용 가능):
+
 - **오버레이**: 배경 위에 반투명 레이어로 텍스트 가독성 확보
 - **접근성**: 텍스트-배경 명암비 최소 4.5:1 (WCAG AA) 준수
 
@@ -260,13 +283,13 @@ HTML/CSS로 슬라이드를 제작하는 디자인 담당.
 }
 ```
 
-**배경 블롭/그라데이션 구체**:
+**배경 블롭** (2. 컬러 & 배경의 `.bg-blur`와 동일한 패턴):
 ```css
 .blob {
   position: absolute;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(primary, 0.3), transparent 70%);
-  filter: blur(60px);
+  background: rgba(var(--primary-rgb), 0.08);
+  filter: blur(80px);
   z-index: 0;
 }
 ```

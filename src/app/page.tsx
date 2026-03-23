@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 type Step = "idle" | "planning" | "confirming" | "making" | "viewing";
 type Ratio = "1:1" | "4:5" | "16:9";
+type Mode = "api" | "cli";
 
 const RATIO_INFO: Record<Ratio, { label: string; width: number; height: number }> = {
   "1:1":  { label: "1:1 (1080×1080)",  width: 1080, height: 1080 },
@@ -14,6 +15,24 @@ const RATIO_INFO: Record<Ratio, { label: string; width: number; height: number }
 
 const SLIDE_COUNTS = [5, 6, 7, 8];
 
+// ── Design System Presets ────────────────────────────────────────────────────
+type ColorPalette = {
+  name: string;
+  bg: string;
+  primary: string;
+};
+
+const COLOR_PALETTES: ColorPalette[] = [
+  { name: "오렌지",    bg: "#FFFFFF", primary: "#F97316" },
+  { name: "네이비",    bg: "#FFFFFF", primary: "#1E3A5F" },
+  { name: "티얼",     bg: "#FAF7F2", primary: "#0D9488" },
+  { name: "로즈",     bg: "#FFFFFF", primary: "#E11D48" },
+  { name: "퍼플",     bg: "#FFFFFF", primary: "#7C3AED" },
+  { name: "포레스트",  bg: "#FFFFFF", primary: "#166534" },
+  { name: "블루",     bg: "#FFFFFF", primary: "#2563EB" },
+  { name: "차콜",     bg: "#FFFFFF", primary: "#374151" },
+];
+
 // ── Session Storage ──────────────────────────────────────────────────────────
 const SK = {
   content:     "cnm_content",
@@ -22,6 +41,9 @@ const SK = {
   projectName: "cnm_projectName",
   plan:        "cnm_plan",
   slides:      "cnm_slides",
+  mode:        "cnm_mode",
+  bgColor:     "cnm_bgColor",
+  primaryColor:"cnm_primaryColor",
 };
 
 function ssGet<T>(key: string, fallback: T): T {
@@ -41,6 +63,42 @@ function ssClear() {
   Object.values(SK).forEach((k) => sessionStorage.removeItem(k));
 }
 
+// ── NDJSON Stream Reader (CLI 모드용) ────────────────────────────────────────
+async function readNdjsonStream(
+  res: Response,
+  onText: (text: string) => void,
+  onDebug: (log: string) => void,
+): Promise<string> {
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let accumulated = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const evt = JSON.parse(line) as { t: "x" | "d"; d: string };
+        if (evt.t === "x") {
+          accumulated += evt.d;
+          onText(accumulated);
+        } else if (evt.t === "d") {
+          onDebug(evt.d);
+        }
+      } catch {
+        onDebug(`[parse error] ${line.slice(0, 200)}`);
+      }
+    }
+  }
+  return accumulated;
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function extractHtml(raw: string): string {
   const match = raw.match(/```html\n?([\s\S]*?)```/) || raw.match(/(<html[\s\S]*<\/html>)/);
@@ -51,6 +109,61 @@ function generateProjectName(text: string): string {
   const safe = text.trim().split(/\s+/).slice(0, 3).join("_")
     .replace(/[^a-zA-Z0-9가-힣_]/g, "").toLowerCase();
   return safe || `project_${Date.now()}`;
+}
+
+// ── SidebarThumb ──────────────────────────────────────────────────────────────
+function SidebarThumb({
+  idx, html, selected, slideW, slideH, onSelect,
+}: {
+  idx: number;
+  html: string | null;
+  selected: boolean;
+  slideW: number;
+  slideH: number;
+  onSelect: () => void;
+}) {
+  const ref = useRef<HTMLButtonElement>(null);
+  const [innerW, setInnerW] = useState(0);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const obs = new ResizeObserver(([e]) => setInnerW(e.contentRect.width));
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
+  const thumbH = innerW > 0 ? Math.round(innerW * (slideH / slideW)) : 0;
+
+  return (
+    <button
+      ref={ref}
+      onClick={onSelect}
+      className={`w-full rounded-lg overflow-hidden border-2 transition-all ${
+        selected ? "border-blue-500 shadow-md" : "border-transparent hover:border-gray-300"
+      }`}
+    >
+      <div className="text-xs text-gray-400 py-0.5 bg-gray-50 text-center border-b border-gray-100">
+        {idx + 1}
+      </div>
+      {html && innerW > 0 ? (
+        <SlideIframe
+          html={extractHtml(html)}
+          slideW={slideW}
+          slideH={slideH}
+          displayW={innerW}
+          title={`thumb-${idx + 1}`}
+        />
+      ) : (
+        <div
+          style={{ height: thumbH || 80 }}
+          className="bg-gray-100 flex items-center justify-center text-xs text-gray-400"
+        >
+          {html ? "" : "생성 중..."}
+        </div>
+      )}
+    </button>
+  );
 }
 
 // ── SlideIframe ───────────────────────────────────────────────────────────────
@@ -113,6 +226,15 @@ function CardNewsMaker() {
   const [projectName, setProjectName] = useState(() =>
     typeof window === "undefined" ? "" : ssGet(SK.projectName, "")
   );
+  const [mode, setMode] = useState<Mode>(() =>
+    typeof window === "undefined" ? "api" : ssGet<Mode>(SK.mode, "api")
+  );
+  const [bgColor, setBgColor] = useState(() =>
+    typeof window === "undefined" ? "#FFFFFF" : ssGet(SK.bgColor, "#FFFFFF")
+  );
+  const [primaryColor, setPrimaryColor] = useState(() =>
+    typeof window === "undefined" ? "#2563EB" : ssGet(SK.primaryColor, "#F97316")
+  );
   const [plan, setPlan] = useState(() =>
     typeof window === "undefined" ? "" : ssGet(SK.plan, "")
   );
@@ -126,6 +248,9 @@ function CardNewsMaker() {
   const [editContent, setEditContent] = useState("");
   const [error, setError] = useState("");
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+  const [showDebug, setShowDebug] = useState(false);
+  const debugEndRef = useRef<HTMLDivElement>(null);
   const [customSlide, setCustomSlide] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(176);
   const [slideContainerSize, setSlideContainerSize] = useState({ w: 800, h: 600 });
@@ -197,6 +322,9 @@ function CardNewsMaker() {
     setSlideCount(ssGet(SK.slideCount, 6));
     setRatio(ssGet<Ratio>(SK.ratio, "4:5"));
     setProjectName(ssGet(SK.projectName, ""));
+    setMode(ssGet<Mode>(SK.mode, "api"));
+    setBgColor(ssGet(SK.bgColor, "#FFFFFF"));
+    setPrimaryColor(ssGet(SK.primaryColor, "#F97316"));
 
     if (urlStep === "confirming") {
       setPlan(ssGet(SK.plan, ""));
@@ -231,6 +359,21 @@ function CardNewsMaker() {
     ssSave({ [SK.projectName]: projectName });
   }, [projectName, step]);
 
+  useEffect(() => {
+    if (step !== "idle") return;
+    ssSave({ [SK.mode]: mode });
+  }, [mode, step]);
+
+  useEffect(() => {
+    if (step !== "idle") return;
+    ssSave({ [SK.bgColor]: bgColor });
+  }, [bgColor, step]);
+
+  useEffect(() => {
+    if (step !== "idle") return;
+    ssSave({ [SK.primaryColor]: primaryColor });
+  }, [primaryColor, step]);
+
   // ── 단계 이동 헬퍼 ────────────────────────────────────────────────────────
   function goTo(s: Step, replace = false) {
     const url = s === "idle" ? "/" : `/?step=${s}`;
@@ -246,12 +389,16 @@ function CardNewsMaker() {
     setProjectName(pName);
     setError("");
     setPlan("");
+    setDebugLogs([]);
 
     ssSave({
       [SK.content]: content,
       [SK.slideCount]: slideCount,
       [SK.ratio]: ratio,
       [SK.projectName]: pName,
+      [SK.mode]: mode,
+      [SK.bgColor]: bgColor,
+      [SK.primaryColor]: primaryColor,
     });
 
     generatingRef.current = true;
@@ -261,20 +408,31 @@ function CardNewsMaker() {
       const res = await fetch("/api/plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content, slideCount, ratio }),
+        body: JSON.stringify({ content, slideCount, ratio, mode, bgColor, primaryColor }),
       });
 
-      const reader = res.body!.getReader();
-      const decoder = new TextDecoder();
-      let accumulated = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        accumulated += decoder.decode(value, { stream: true });
-        setPlan(accumulated);
+      let finalPlan: string;
+
+      if (mode === "cli") {
+        finalPlan = await readNdjsonStream(
+          res,
+          (text) => setPlan(text),
+          (log) => setDebugLogs((prev) => [...prev, log]),
+        );
+      } else {
+        const reader = res.body!.getReader();
+        const decoder = new TextDecoder();
+        let accumulated = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          accumulated += decoder.decode(value, { stream: true });
+          setPlan(accumulated);
+        }
+        finalPlan = accumulated;
       }
 
-      ssSave({ [SK.plan]: accumulated });
+      ssSave({ [SK.plan]: finalPlan });
       generatingRef.current = false;
       goTo("confirming"); // confirming push → 뒤로가기로 idle로 돌아올 수 있음
     } catch (e) {
@@ -302,6 +460,7 @@ function CardNewsMaker() {
     const initialSlides: (string | null)[] = Array(slideCount).fill(null);
     setSlides(initialSlides);
     setError("");
+    setDebugLogs([]);
 
     ssSave({ [SK.plan]: plan });
 
@@ -324,16 +483,26 @@ function CardNewsMaker() {
           const res = await fetch("/api/make", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ plan, slideIndices, totalSlides: slideCount, ratio }),
+            body: JSON.stringify({ plan, slideIndices, totalSlides: slideCount, ratio, mode, bgColor, primaryColor }),
           });
 
-          const reader = res.body!.getReader();
-          const decoder = new TextDecoder();
-          let text = "";
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            text += decoder.decode(value, { stream: true });
+          let text: string;
+
+          if (mode === "cli") {
+            text = await readNdjsonStream(
+              res,
+              () => {},
+              (log) => setDebugLogs((prev) => [...prev, log]),
+            );
+          } else {
+            const reader = res.body!.getReader();
+            const decoder = new TextDecoder();
+            text = "";
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              text += decoder.decode(value, { stream: true });
+            }
           }
 
           const parsed = parseBatchResponse(text, slideIndices);
@@ -436,6 +605,9 @@ function CardNewsMaker() {
     setPlan("");
     setSlides([]);
     setProjectName("");
+    setMode("api");
+    setBgColor("#FFFFFF");
+    setPrimaryColor("#F97316");
     setEditingSlide(null);
     setError("");
     goTo("idle");
@@ -455,39 +627,18 @@ function CardNewsMaker() {
           <div className="px-4 py-3 border-b border-gray-100">
             <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">슬라이드</span>
           </div>
-          <div className="flex-1 overflow-y-auto p-2 space-y-2">
-            {slides.map((html, idx) => {
-              const thumbW = sidebarWidth - 16;
-              return (
-                <button
-                  key={idx}
-                  onClick={() => { setSelectedSlide(idx); setEditingSlide(null); }}
-                  className={`w-full rounded-lg overflow-hidden border-2 transition-all ${
-                    selectedSlide === idx ? "border-blue-500 shadow-md" : "border-transparent hover:border-gray-300"
-                  }`}
-                >
-                  <div className="text-xs text-gray-400 py-0.5 bg-gray-50 text-center border-b border-gray-100">
-                    {idx + 1}
-                  </div>
-                  {html ? (
-                    <SlideIframe
-                      html={extractHtml(html)}
-                      slideW={slideW}
-                      slideH={slideH}
-                      displayW={thumbW}
-                      title={`thumb-${idx + 1}`}
-                    />
-                  ) : (
-                    <div
-                      style={{ width: thumbW, height: Math.round(thumbW * slideH / slideW) }}
-                      className="bg-gray-100 flex items-center justify-center text-xs text-gray-400"
-                    >
-                      생성 중...
-                    </div>
-                  )}
-                </button>
-              );
-            })}
+          <div className="flex-1 overflow-y-auto p-3 space-y-3">
+            {slides.map((html, idx) => (
+              <SidebarThumb
+                key={idx}
+                idx={idx}
+                html={html}
+                selected={selectedSlide === idx}
+                slideW={slideW}
+                slideH={slideH}
+                onSelect={() => { setSelectedSlide(idx); setEditingSlide(null); }}
+              />
+            ))}
           </div>
         </aside>
 
@@ -696,6 +847,91 @@ function CardNewsMaker() {
           </div>
 
           <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">디자인 시스템</label>
+            <div className="space-y-4">
+              {/* 팔레트 프리셋 */}
+              <div>
+                <span className="block text-xs text-gray-500 mb-2">프리셋</span>
+                <div className="grid grid-cols-4 gap-2">
+                  {COLOR_PALETTES.map((p) => (
+                    <button
+                      key={p.name}
+                      onClick={() => { setBgColor(p.bg); setPrimaryColor(p.primary); }}
+                      className={`flex items-center gap-2 py-2 px-3 rounded-lg text-xs font-medium transition-colors border ${
+                        bgColor === p.bg && primaryColor === p.primary
+                          ? "border-blue-500 bg-blue-50"
+                          : "border-gray-200 hover:border-gray-300"
+                      }`}
+                    >
+                      <span className="flex gap-0.5 shrink-0">
+                        <span className="w-4 h-4 rounded-full border border-gray-200" style={{ backgroundColor: p.bg }} />
+                        <span className="w-4 h-4 rounded-full" style={{ backgroundColor: p.primary }} />
+                      </span>
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 커스텀 색상 */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <span className="block text-xs text-gray-500 mb-1.5">배경색</span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={bgColor}
+                      onChange={(e) => setBgColor(e.target.value)}
+                      className="w-8 h-8 rounded-lg border border-gray-200 cursor-pointer p-0.5"
+                    />
+                    <input
+                      type="text"
+                      value={bgColor}
+                      onChange={(e) => setBgColor(e.target.value)}
+                      className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <span className="block text-xs text-gray-500 mb-1.5">주요색</span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={primaryColor}
+                      onChange={(e) => setPrimaryColor(e.target.value)}
+                      className="w-8 h-8 rounded-lg border border-gray-200 cursor-pointer p-0.5"
+                    />
+                    <input
+                      type="text"
+                      value={primaryColor}
+                      onChange={(e) => setPrimaryColor(e.target.value)}
+                      className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* 미리보기 */}
+              <div
+                className="rounded-xl p-4 border border-gray-100 relative overflow-hidden"
+                style={{ backgroundColor: bgColor }}
+              >
+                <div
+                  className="absolute -top-4 -right-4 w-24 h-24 rounded-full opacity-15 blur-2xl"
+                  style={{ backgroundColor: primaryColor }}
+                />
+                <div className="relative flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg" style={{ backgroundColor: primaryColor }} />
+                  <div className="space-y-1.5 flex-1">
+                    <div className="h-2.5 rounded-full w-3/4" style={{ backgroundColor: primaryColor, opacity: 0.8 }} />
+                    <div className="h-2 rounded-full w-1/2" style={{ backgroundColor: primaryColor, opacity: 0.4 }} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               프로젝트명 <span className="text-gray-400 font-normal">(선택)</span>
             </label>
@@ -706,6 +942,30 @@ function CardNewsMaker() {
               value={projectName}
               onChange={(e) => setProjectName(e.target.value)}
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">생성 모드</label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setMode("api")}
+                className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
+                  mode === "api" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                }`}
+              >
+                API
+                <span className="block text-xs font-normal opacity-75 mt-0.5">LLM API 직접 호출</span>
+              </button>
+              <button
+                onClick={() => setMode("cli")}
+                className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
+                  mode === "cli" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                }`}
+              >
+                Claude Code CLI
+                <span className="block text-xs font-normal opacity-75 mt-0.5">claude -p (도구 사용 가능)</span>
+              </button>
+            </div>
           </div>
 
           <button
@@ -719,14 +979,48 @@ function CardNewsMaker() {
       )}
 
       {step === "planning" && (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-            <h2 className="font-semibold text-gray-800">기획 중...</h2>
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+              <h2 className="font-semibold text-gray-800">기획 중...</h2>
+              {mode === "cli" && <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">CLI</span>}
+            </div>
+            <pre className="text-sm text-gray-600 whitespace-pre-wrap font-mono bg-gray-50 rounded-xl p-4 max-h-96 overflow-y-auto">
+              {plan || "기획을 생성하고 있습니다..."}
+            </pre>
           </div>
-          <pre className="text-sm text-gray-600 whitespace-pre-wrap font-mono bg-gray-50 rounded-xl p-4 max-h-96 overflow-y-auto">
-            {plan || "기획을 생성하고 있습니다..."}
-          </pre>
+
+          {mode === "cli" && debugLogs.length > 0 && (
+            <div className="bg-gray-900 rounded-2xl border border-gray-700 overflow-hidden">
+              <button
+                onClick={() => setShowDebug((v) => !v)}
+                className="w-full px-4 py-2.5 flex items-center justify-between text-xs text-gray-400 hover:text-gray-200 transition-colors"
+              >
+                <span className="font-mono">Claude Code CLI Log ({debugLogs.length})</span>
+                <span>{showDebug ? "▲" : "▼"}</span>
+              </button>
+              {showDebug && (
+                <div className="px-4 pb-3 max-h-64 overflow-y-auto font-mono text-xs leading-relaxed">
+                  {debugLogs.map((log, i) => (
+                    <div
+                      key={i}
+                      className={`py-0.5 ${
+                        log.startsWith("[tool_call]") ? "text-yellow-400" :
+                        log.startsWith("[tool_result]") ? "text-green-400" :
+                        log.startsWith("[error]") || log.startsWith("[stderr]") ? "text-red-400" :
+                        log.startsWith("[done]") ? "text-blue-400" :
+                        "text-gray-500"
+                      }`}
+                    >
+                      {log}
+                    </div>
+                  ))}
+                  <div ref={debugEndRef} />
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -759,45 +1053,78 @@ function CardNewsMaker() {
       )}
 
       {step === "making" && (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 space-y-6">
-          <div>
-            <div className="flex justify-between text-sm text-gray-500 mb-2">
-              <span>슬라이드 생성 중... {completedCount}/{slideCount}</span>
-              <span>{Math.round((completedCount / slideCount) * 100)}%</span>
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 space-y-6">
+            <div>
+              <div className="flex justify-between text-sm text-gray-500 mb-2">
+                <span>슬라이드 생성 중... {completedCount}/{slideCount}</span>
+                <span>{Math.round((completedCount / slideCount) * 100)}%</span>
+              </div>
+              <div className="w-full bg-gray-100 rounded-full h-2">
+                <div
+                  className="bg-blue-600 h-2 rounded-full transition-all"
+                  style={{ width: `${(completedCount / slideCount) * 100}%` }}
+                />
+              </div>
             </div>
-            <div className="w-full bg-gray-100 rounded-full h-2">
-              <div
-                className="bg-blue-600 h-2 rounded-full transition-all"
-                style={{ width: `${(completedCount / slideCount) * 100}%` }}
-              />
+
+            <div className="grid grid-cols-3 gap-3">
+              {slides.map((html, idx) => (
+                <div key={idx} className="border border-gray-100 rounded-xl overflow-hidden">
+                  <div className="text-xs text-gray-400 py-1 bg-gray-50 text-center border-b border-gray-100">
+                    slide_{String(idx + 1).padStart(2, "0")}
+                  </div>
+                  {html ? (
+                    <SlideIframe
+                      html={extractHtml(html)}
+                      slideW={slideW}
+                      slideH={slideH}
+                      displayW={208}
+                      title={`making-${idx + 1}`}
+                    />
+                  ) : (
+                    <div
+                      style={{ height: Math.round(208 * slideH / slideW) }}
+                      className="bg-gray-50 flex items-center justify-center"
+                    >
+                      <div className="w-4 h-4 rounded-full border-2 border-blue-300 border-t-blue-600 animate-spin" />
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
-            {slides.map((html, idx) => (
-              <div key={idx} className="border border-gray-100 rounded-xl overflow-hidden">
-                <div className="text-xs text-gray-400 py-1 bg-gray-50 text-center border-b border-gray-100">
-                  slide_{String(idx + 1).padStart(2, "0")}
+          {mode === "cli" && debugLogs.length > 0 && (
+            <div className="bg-gray-900 rounded-2xl border border-gray-700 overflow-hidden">
+              <button
+                onClick={() => setShowDebug((v) => !v)}
+                className="w-full px-4 py-2.5 flex items-center justify-between text-xs text-gray-400 hover:text-gray-200 transition-colors"
+              >
+                <span className="font-mono">Claude Code CLI Log ({debugLogs.length})</span>
+                <span>{showDebug ? "▲" : "▼"}</span>
+              </button>
+              {showDebug && (
+                <div className="px-4 pb-3 max-h-64 overflow-y-auto font-mono text-xs leading-relaxed">
+                  {debugLogs.map((log, i) => (
+                    <div
+                      key={i}
+                      className={`py-0.5 ${
+                        log.startsWith("[tool_call]") ? "text-yellow-400" :
+                        log.startsWith("[tool_result]") ? "text-green-400" :
+                        log.startsWith("[error]") || log.startsWith("[stderr]") ? "text-red-400" :
+                        log.startsWith("[done]") ? "text-blue-400" :
+                        "text-gray-500"
+                      }`}
+                    >
+                      {log}
+                    </div>
+                  ))}
+                  <div ref={debugEndRef} />
                 </div>
-                {html ? (
-                  <SlideIframe
-                    html={extractHtml(html)}
-                    slideW={slideW}
-                    slideH={slideH}
-                    displayW={208}
-                    title={`making-${idx + 1}`}
-                  />
-                ) : (
-                  <div
-                    style={{ height: Math.round(208 * slideH / slideW) }}
-                    className="bg-gray-50 flex items-center justify-center"
-                  >
-                    <div className="w-4 h-4 rounded-full border-2 border-blue-300 border-t-blue-600 animate-spin" />
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </main>
