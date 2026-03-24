@@ -49,7 +49,9 @@ HTML/CSS로 슬라이드를 제작하는 디자인 담당.
 
 **코드 블록 구현 규칙**:
 
-코드 블록은 반드시 **터미널/에디터 윈도우 스타일**로 구현한다. 단순 `<div>` 배경이 아닌, 탭 바(dot 3개) + 코드 영역 구조를 사용한다.
+코드 블록은 반드시 **터미널/에디터 윈도우 스타일**로 구현한다. 탭 바(dot 3개) + 코드 영역 구조를 사용하며, **포매터(Prettier 등)에 안전한 flex 기반 구조**를 사용한다.
+
+**핵심: `white-space: pre`를 사용하지 않는다.** 대신 각 코드 줄을 `.code-line` flex row로, 각 토큰을 `.code-tokens` flex 컨테이너 안의 `<span>`으로 배치한다. 이렇게 하면 포매터가 HTML을 재정렬해도 렌더링이 깨지지 않는다.
 
 ```html
 <div class="code-block-wrap">
@@ -58,12 +60,23 @@ HTML/CSS로 슬라이드를 제작하는 디자인 담당.
     <div class="tab-dot tab-dot-yellow"></div>
     <div class="tab-dot tab-dot-green"></div>
   </div>
-  <div class="code-block"><span class="code-comment">// Before</span>
-&lt;a href="/home"&gt;홈&lt;/a&gt;</div>
-  <div class="code-divider"></div>
-  <div class="code-block"><span class="code-comment">// After</span>
-<span class="code-import">import</span> Link <span class="code-import">from</span> <span class="code-string">'next/link'</span>
-&lt;Link href="/home"&gt;홈&lt;/Link&gt;</div>
+  <div class="code-body">
+    <div class="code-line">
+      <span class="line-num">1</span>
+      <div class="code-tokens">
+        <span class="code-keyword">const</span>
+        <span class="code-var">name</span>
+        <span class="code-op">=</span>
+        <span class="code-string">'hello'</span>
+      </div>
+    </div>
+    <div class="code-line">
+      <span class="line-num">2</span>
+      <div class="code-tokens">
+        <span class="code-comment">// 주석</span>
+      </div>
+    </div>
+  </div>
 </div>
 ```
 
@@ -93,22 +106,49 @@ HTML/CSS로 슬라이드를 제작하는 디자인 담당.
 .tab-dot-yellow { background: #FFBD2E; }
 .tab-dot-green { background: #28CA42; }
 
-.code-block {
+.code-body {
   padding: 28px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.code-line {
+  display: flex;
+  align-items: baseline;
+  gap: 20px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 20px;
-  line-height: 1.7;
-  white-space: pre;
+  line-height: 1.8;
+  white-space: nowrap;
+}
+
+.line-num {
+  font-size: 14px;
+  color: rgba(255,255,255,0.2);
+  width: 20px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.code-tokens {
+  display: flex;
+  gap: 0.5em;
   color: #E2E8F0;
 }
 
 /* 코드 구문 강조 색상 */
-.code-comment { color: #6B7280; }
+.code-comment { color: #6B7280; font-style: italic; margin-left: 1.5em; }
+.code-keyword { color: #C792EA; }
+.code-var { color: #82AAFF; }
+.code-op { color: #89DDFF; }
+.code-num { color: #F78C6C; }
 .code-tag { color: #F472B6; }
 .code-attr { color: #60A5FA; }
 .code-string { color: #34D399; }
 .code-import { color: #A78BFA; }
 .code-component { color: #00D4AA; }
+.code-type { color: #F97316; }
 
 /* Before/After 구분선 */
 .code-divider {
@@ -119,9 +159,10 @@ HTML/CSS로 슬라이드를 제작하는 디자인 담당.
 ```
 
 **코드 블록 금지 사항**:
-- `display: flex; flex-direction: column`을 `.code-block`에 사용하지 않는다 (인라인 `<span>`이 세로로 쌓임)
-- `white-space: pre-wrap`을 사용하지 않는다 (좁은 영역에서 의도치 않은 줄바꿈 발생)
-- 반드시 `white-space: pre`를 사용한다
+- **`white-space: pre`를 사용하지 않는다** — 포매터(Prettier)가 HTML 들여쓰기를 변경하면 pre 안의 공백이 그대로 렌더링되어 레이아웃이 깨진다
+- `white-space: pre-wrap`도 사용하지 않는다
+- 코드 내용을 단일 `<div>` 안에 인라인으로 넣지 않는다 — 반드시 줄 단위(`.code-line`)로 분리한다
+- `.code-tokens`에 `flex-direction: column`을 사용하지 않는다
 
 **폰트 규칙**: 코드 블록을 제외한 모든 텍스트는 **Pretendard만 사용**한다. 영문 헤드라인 포함, 보조 폰트를 추가하지 않는다.
 
