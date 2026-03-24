@@ -41,7 +41,7 @@ HTML/CSS로 슬라이드를 제작하는 디자인 담당.
 
 `font-family: 'Pretendard', -apple-system, sans-serif;`
 
-**코드 슬라이드용 폰트: JetBrains Mono** (코드 블록이 있는 슬라이드에만 추가):
+**코드/모노스페이스 폰트: JetBrains Mono** — `font-family`에 `JetBrains Mono`를 사용하는 슬라이드에는 **반드시** 아래 import를 추가한다. 코드 블록, 이벤트명, API 경로 등 모노스페이스가 필요한 모든 경우에 해당한다. **import 없이 font-family만 지정하면 fallback 폰트로 렌더링되므로 절대 빠뜨리지 않는다.**
 
 ```css
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
@@ -164,7 +164,7 @@ HTML/CSS로 슬라이드를 제작하는 디자인 담당.
 - 코드 내용을 단일 `<div>` 안에 인라인으로 넣지 않는다 — 반드시 줄 단위(`.code-line`)로 분리한다
 - `.code-tokens`에 `flex-direction: column`을 사용하지 않는다
 
-**폰트 규칙**: 코드 블록을 제외한 모든 텍스트는 **Pretendard만 사용**한다. 영문 헤드라인 포함, 보조 폰트를 추가하지 않는다.
+**폰트 규칙**: **제목(h1, 메인 타이틀)은 무조건 Pretendard**를 사용한다. `useEffect`, `useState` 같은 코드 용어가 제목에 포함되더라도 제목 폰트는 Pretendard다. JetBrains Mono는 **코드 블록 내부, 인라인 코드 스니펫, 이벤트명 카드** 등 본문 수준의 코드 표현에만 사용한다. 영문 헤드라인 포함, 제목에 보조 폰트를 적용하지 않는다.
 
 **타이포 스케일** (8px 그리드 기반):
 
