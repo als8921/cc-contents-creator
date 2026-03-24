@@ -78,11 +78,49 @@ async function main() {
       await page.close();
       console.log(`  ${pngName}`);
     }));
+    console.log(`Done! PNGs saved to ${pngDir}/`);
+
+    // PNG → PDF 변환
+    const pdfDir = path.join("output", projectName, "pdf");
+    fs.mkdirSync(pdfDir, { recursive: true });
+
+    const pngFiles = fs.readdirSync(pngDir)
+      .filter((f) => f.endsWith(".png"))
+      .sort();
+    const pdfPath = path.join(pdfDir, `${projectName}.pdf`);
+
+    const w = size.width * scale;
+    const h = size.height * scale;
+
+    console.log(`\nConverting ${pngFiles.length} PNGs to PDF...`);
+
+    const images = pngFiles.map((f) => {
+      const data = fs.readFileSync(path.join(pngDir, f));
+      return `data:image/png;base64,${data.toString("base64")}`;
+    });
+
+    const pdfHtml = `<!DOCTYPE html><html><head><style>
+      @page { size: ${w}px ${h}px; margin: 0; }
+      body { margin: 0; }
+      img { width: ${w}px; height: ${h}px; display: block; page-break-after: always; }
+      img:last-child { page-break-after: auto; }
+    </style></head><body>${images.map((src) => `<img src="${src}">`).join("")}</body></html>`;
+
+    const pdfPage = await browser.newPage();
+    await pdfPage.setContent(pdfHtml, { waitUntil: "networkidle" });
+    await pdfPage.pdf({
+      path: pdfPath,
+      width: `${w}px`,
+      height: `${h}px`,
+      printBackground: true,
+      margin: { top: 0, right: 0, bottom: 0, left: 0 },
+    });
+    await pdfPage.close();
+
+    console.log(`Done! PDF saved to ${pdfPath}`);
   } finally {
     await browser.close();
   }
-
-  console.log(`Done! PNGs saved to ${pngDir}/`);
 }
 
 main().catch((err) => {
