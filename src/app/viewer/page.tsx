@@ -6,10 +6,11 @@ type Project = { name: string; slides: string[] };
 
 const SCALE_STEP = 0.05;
 const SCALE_MIN = 0.15;
-const SCALE_MAX = 1.5;
+const SCALE_MAX = 2;
 const SIDEBAR_MIN = 180;
 const SIDEBAR_MAX = 480;
 const EDIT_PANEL_W = 420;
+const FIT_PADDING = 80;
 type EditTab = "ai" | "html";
 
 export default function ViewerPage() {
@@ -27,7 +28,9 @@ export default function ViewerPage() {
     const [editInput, setEditInput] = useState("");
     const [isEditing, setIsEditing] = useState(false);
     const [editLog, setEditLog] = useState<string[]>([]);
-    const [historyState, setHistoryState] = useState<Record<string, { pointer: number; total: number }>>({});
+    const [historyState, setHistoryState] = useState<
+        Record<string, { pointer: number; total: number }>
+    >({});
     const [iframeKey, setIframeKey] = useState(0);
     const [editPanelOpen, setEditPanelOpen] = useState(false);
     const [editTab, setEditTab] = useState<EditTab>("ai");
@@ -36,6 +39,8 @@ export default function ViewerPage() {
     const [isSavingHtml, setIsSavingHtml] = useState(false);
     const editInputRef = useRef<HTMLTextAreaElement>(null);
     const logRef = useRef<HTMLDivElement>(null);
+    const mainRef = useRef<HTMLElement>(null);
+    const [fitScale, setFitScale] = useState(1);
 
     useEffect(() => {
         fetch("/api/projects")
@@ -63,17 +68,26 @@ export default function ViewerPage() {
         fetch(`/api/save-slide?project=${selected}&file=${currentSlide}`)
             .then((r) => r.json())
             .then((data) => {
-                setHistoryState((s) => ({ ...s, [histKey]: { pointer: data.pointer, total: data.total } }));
+                setHistoryState((s) => ({
+                    ...s,
+                    [histKey]: { pointer: data.pointer, total: data.total },
+                }));
             });
         fetch(`/api/slide?project=${selected}&file=${currentSlide}`)
             .then((r) => r.text())
-            .then((html) => { setHtmlSource(html); setHtmlDirty(false); });
+            .then((html) => {
+                setHtmlSource(html);
+                setHtmlDirty(false);
+            });
     }, [selected, currentSlide, histKey, iframeKey]);
 
     // Close dropdown on outside click
     useEffect(() => {
         const handle = (e: MouseEvent) => {
-            if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+            if (
+                dropdownRef.current &&
+                !dropdownRef.current.contains(e.target as Node)
+            ) {
                 setDropdownOpen(false);
             }
         };
@@ -96,8 +110,7 @@ export default function ViewerPage() {
             // Don't handle arrow keys when editing
             if (editInputRef.current === document.activeElement) return;
 
-            if (e.key === "ArrowLeft")
-                setCurrentIdx((i) => Math.max(0, i - 1));
+            if (e.key === "ArrowLeft") setCurrentIdx((i) => Math.max(0, i - 1));
             if (e.key === "ArrowRight")
                 setCurrentIdx((i) => Math.min(slides.length - 1, i + 1));
             if ((e.metaKey || e.ctrlKey) && e.key === "=") {
@@ -156,7 +169,8 @@ export default function ViewerPage() {
 
     // Edit slide handler
     const handleEdit = useCallback(async () => {
-        if (!editInput.trim() || !selected || !currentSlide || isEditing) return;
+        if (!editInput.trim() || !selected || !currentSlide || isEditing)
+            return;
 
         setIsEditing(true);
         setEditLog([`> ${editInput}`]);
@@ -167,7 +181,11 @@ export default function ViewerPage() {
             const res = await fetch("/api/edit-slide", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ project: selected, file: currentSlide, instruction }),
+                body: JSON.stringify({
+                    project: selected,
+                    file: currentSlide,
+                    instruction,
+                }),
             });
 
             if (!res.ok) {
@@ -206,26 +224,47 @@ export default function ViewerPage() {
             // Extract HTML from the response
             let html = fullText.trim();
             if (html.startsWith("```")) {
-                html = html.replace(/^```(?:html)?\n?/, "").replace(/\n?```$/, "");
+                html = html
+                    .replace(/^```(?:html)?\n?/, "")
+                    .replace(/\n?```$/, "");
             }
 
             if (html.includes("<!DOCTYPE html>") || html.includes("<html")) {
                 const saveRes = await fetch("/api/save-slide", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ project: selected, file: currentSlide, html }),
+                    body: JSON.stringify({
+                        project: selected,
+                        file: currentSlide,
+                        html,
+                    }),
                 });
                 const saveData = await saveRes.json();
 
                 if (saveData.ok) {
-                    setHistoryState((s) => ({ ...s, [histKey]: { pointer: saveData.pointer, total: saveData.total } }));
+                    setHistoryState((s) => ({
+                        ...s,
+                        [histKey]: {
+                            pointer: saveData.pointer,
+                            total: saveData.total,
+                        },
+                    }));
                     setIframeKey((k) => k + 1);
-                    setEditLog((l) => [...l, `[done] 저장 완료 (${saveData.pointer + 1}/${saveData.total})`]);
+                    setEditLog((l) => [
+                        ...l,
+                        `[done] 저장 완료 (${saveData.pointer + 1}/${saveData.total})`,
+                    ]);
                 } else {
-                    setEditLog((l) => [...l, `[error] 저장 실패: ${saveData.error}`]);
+                    setEditLog((l) => [
+                        ...l,
+                        `[error] 저장 실패: ${saveData.error}`,
+                    ]);
                 }
             } else {
-                setEditLog((l) => [...l, "[error] LLM이 유효한 HTML을 반환하지 않았습니다"]);
+                setEditLog((l) => [
+                    ...l,
+                    "[error] LLM이 유효한 HTML을 반환하지 않았습니다",
+                ]);
             }
         } catch (err) {
             setEditLog((l) => [...l, `[error] ${err}`]);
@@ -235,29 +274,42 @@ export default function ViewerPage() {
     }, [editInput, selected, currentSlide, isEditing, histKey]);
 
     // Undo/Redo handler
-    const handleUndoRedo = useCallback(async (action: "undo" | "redo") => {
-        if (!selected || !currentSlide || isEditing) return;
+    const handleUndoRedo = useCallback(
+        async (action: "undo" | "redo") => {
+            if (!selected || !currentSlide || isEditing) return;
 
-        try {
-            const res = await fetch("/api/save-slide", {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ project: selected, file: currentSlide, action }),
-            });
-            const data = await res.json();
+            try {
+                const res = await fetch("/api/save-slide", {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        project: selected,
+                        file: currentSlide,
+                        action,
+                    }),
+                });
+                const data = await res.json();
 
-            if (data.ok) {
-                setHistoryState((s) => ({ ...s, [histKey]: { pointer: data.pointer, total: data.total } }));
-                setIframeKey((k) => k + 1);
-                const label = action === "undo" ? "undo" : "redo";
-                setEditLog((l) => [...l, `[${label}] 버전 ${data.pointer + 1}/${data.total} 복원`]);
-            } else {
-                setEditLog((l) => [...l, `[error] ${data.error}`]);
+                if (data.ok) {
+                    setHistoryState((s) => ({
+                        ...s,
+                        [histKey]: { pointer: data.pointer, total: data.total },
+                    }));
+                    setIframeKey((k) => k + 1);
+                    const label = action === "undo" ? "undo" : "redo";
+                    setEditLog((l) => [
+                        ...l,
+                        `[${label}] 버전 ${data.pointer + 1}/${data.total} 복원`,
+                    ]);
+                } else {
+                    setEditLog((l) => [...l, `[error] ${data.error}`]);
+                }
+            } catch (err) {
+                setEditLog((l) => [...l, `[error] ${err}`]);
             }
-        } catch (err) {
-            setEditLog((l) => [...l, `[error] ${err}`]);
-        }
-    }, [selected, currentSlide, isEditing, histKey]);
+        },
+        [selected, currentSlide, isEditing, histKey],
+    );
 
     // Save HTML source directly
     const handleSaveHtml = useCallback(async () => {
@@ -267,14 +319,24 @@ export default function ViewerPage() {
             const res = await fetch("/api/save-slide", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ project: selected, file: currentSlide, html: htmlSource }),
+                body: JSON.stringify({
+                    project: selected,
+                    file: currentSlide,
+                    html: htmlSource,
+                }),
             });
             const data = await res.json();
             if (data.ok) {
-                setHistoryState((s) => ({ ...s, [histKey]: { pointer: data.pointer, total: data.total } }));
+                setHistoryState((s) => ({
+                    ...s,
+                    [histKey]: { pointer: data.pointer, total: data.total },
+                }));
                 setIframeKey((k) => k + 1);
                 setHtmlDirty(false);
-                setEditLog((l) => [...l, `[done] HTML 직접 수정 저장 (${data.pointer + 1}/${data.total})`]);
+                setEditLog((l) => [
+                    ...l,
+                    `[done] HTML 직접 수정 저장 (${data.pointer + 1}/${data.total})`,
+                ]);
             }
         } catch (err) {
             setEditLog((l) => [...l, `[error] ${err}`]);
@@ -283,9 +345,28 @@ export default function ViewerPage() {
         }
     }, [selected, currentSlide, isSavingHtml, htmlSource, histKey]);
 
-    // Thumbnail sizing based on sidebar width
     const slideW = 1920;
     const slideH = 1080;
+
+    // Compute fitScale so that scale=1 (100%) fits the slide in the viewport
+    useEffect(() => {
+        const el = mainRef.current;
+        if (!el) return;
+        const compute = () => {
+            const availW = el.clientWidth - FIT_PADDING * 2;
+            const availH = el.clientHeight - FIT_PADDING * 2;
+            const fit = Math.min(availW / slideW, availH / slideH);
+            setFitScale(Math.max(0.05, fit));
+        };
+        compute();
+        const ro = new ResizeObserver(compute);
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, [editPanelOpen]);
+
+    const renderScale = scale * fitScale;
+
+    // Thumbnail sizing based on sidebar width
     const thumbPad = 30;
     const thumbW = sidebarW - thumbPad;
     const thumbScale = thumbW / slideW;
@@ -303,20 +384,34 @@ export default function ViewerPage() {
                 style={{ width: sidebarW }}
             >
                 {/* Project selector */}
-                <div className="px-4 py-3 border-b border-gray-200 flex-shrink-0 relative" ref={dropdownRef}>
+                <div
+                    className="px-4 py-3 border-b border-gray-200 flex-shrink-0 relative"
+                    ref={dropdownRef}
+                >
                     <button
                         onClick={() => setDropdownOpen((v) => !v)}
                         className="w-full flex items-center justify-between bg-white px-3 py-2.5 rounded-xl border border-gray-200 hover:border-gray-300 transition-colors"
                     >
                         <div className="flex flex-col items-start gap-0.5">
-                            <span className="text-[10px] font-medium text-orange-500 uppercase tracking-wider">Project</span>
-                            <span className="text-sm font-semibold text-gray-900 truncate max-w-[160px]">{selected || "선택"}</span>
+                            <span className="text-[10px] font-medium text-orange-500 uppercase tracking-wider">
+                                Project
+                            </span>
+                            <span className="text-sm font-semibold text-gray-900 truncate max-w-[160px]">
+                                {selected || "선택"}
+                            </span>
                         </div>
                         <svg
                             className={`w-4 h-4 text-gray-400 transition-transform ${dropdownOpen ? "rotate-180" : ""}`}
-                            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
                         >
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M19 9l-7 7-7-7"
+                            />
                         </svg>
                     </button>
 
@@ -325,15 +420,22 @@ export default function ViewerPage() {
                             {projects.map((p) => (
                                 <button
                                     key={p.name}
-                                    onClick={() => { setSelected(p.name); setDropdownOpen(false); }}
+                                    onClick={() => {
+                                        setSelected(p.name);
+                                        setDropdownOpen(false);
+                                    }}
                                     className={`w-full text-left px-3 py-2.5 flex items-center justify-between transition-colors ${
                                         p.name === selected
                                             ? "bg-orange-50 text-orange-600"
                                             : "hover:bg-gray-50 text-gray-700"
                                     }`}
                                 >
-                                    <span className="text-sm font-medium truncate">{p.name}</span>
-                                    <span className="text-[11px] text-gray-400 flex-shrink-0 ml-2">{p.slides.length}장</span>
+                                    <span className="text-sm font-medium truncate">
+                                        {p.name}
+                                    </span>
+                                    <span className="text-[11px] text-gray-400 flex-shrink-0 ml-2">
+                                        {p.slides.length}장
+                                    </span>
                                 </button>
                             ))}
                         </div>
@@ -388,12 +490,15 @@ export default function ViewerPage() {
             />
 
             {/* Main area */}
-            <main className="flex-1 overflow-auto flex items-center justify-center bg-gray-100 relative">
+            <main
+                ref={mainRef}
+                className="flex-1 overflow-auto flex items-center justify-center bg-gray-100 relative"
+            >
                 {currentSlide ? (
                     <div
                         style={{
-                            width: slideW * scale,
-                            height: slideH * scale,
+                            width: slideW * renderScale,
+                            height: slideH * renderScale,
                             flexShrink: 0,
                         }}
                     >
@@ -403,7 +508,7 @@ export default function ViewerPage() {
                             style={{
                                 width: slideW,
                                 height: slideH,
-                                transform: `scale(${scale})`,
+                                transform: `scale(${renderScale})`,
                                 transformOrigin: "top left",
                                 display: "block",
                             }}
@@ -427,10 +532,16 @@ export default function ViewerPage() {
                         ‹
                     </button>
                     <span className="text-xs text-gray-500 min-w-[56px] text-center tabular-nums select-none">
-                        {slides.length > 0 ? `${currentIdx + 1} / ${slides.length}` : "—"}
+                        {slides.length > 0
+                            ? `${currentIdx + 1} / ${slides.length}`
+                            : "—"}
                     </span>
                     <button
-                        onClick={() => setCurrentIdx((i) => Math.min(slides.length - 1, i + 1))}
+                        onClick={() =>
+                            setCurrentIdx((i) =>
+                                Math.min(slides.length - 1, i + 1),
+                            )
+                        }
                         disabled={currentIdx >= slides.length - 1}
                         className={`${btnClass} ${btnDisabled}`}
                     >
@@ -443,7 +554,9 @@ export default function ViewerPage() {
                     className="fixed bottom-6 z-20 flex items-center gap-1.5 bg-white/90 backdrop-blur-md border border-gray-200 rounded-2xl px-2 py-1.5 shadow-lg shadow-black/8"
                     style={{ right: editPanelOpen ? EDIT_PANEL_W + 20 : 20 }}
                 >
-                    <button onClick={zoomOut} className={btnClass}>−</button>
+                    <button onClick={zoomOut} className={btnClass}>
+                        −
+                    </button>
                     <input
                         type="range"
                         min={SCALE_MIN * 100}
@@ -452,7 +565,9 @@ export default function ViewerPage() {
                         onChange={(e) => setScale(Number(e.target.value) / 100)}
                         className="w-28 h-5 appearance-none bg-transparent cursor-pointer accent-orange-500"
                     />
-                    <button onClick={zoomIn} className={btnClass}>+</button>
+                    <button onClick={zoomIn} className={btnClass}>
+                        +
+                    </button>
                     <button
                         onClick={zoomFit}
                         className="h-7 px-1.5 flex items-center justify-center rounded-lg bg-white hover:bg-gray-100 text-[10px] text-gray-500 border border-gray-200 min-w-[40px] tabular-nums transition-colors"
@@ -467,14 +582,40 @@ export default function ViewerPage() {
                         onClick={() => setEditPanelOpen(true)}
                         className="fixed top-4 right-4 z-20 flex items-center gap-2 px-4 py-2.5 bg-orange-500 text-white text-sm font-medium rounded-xl hover:bg-orange-600 shadow-lg shadow-orange-500/20 transition-colors"
                     >
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        <svg
+                            className="w-4 h-4"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                        >
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                            />
                         </svg>
                         수정
                         {isEditing && (
-                            <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
-                                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
-                                <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+                            <svg
+                                className="w-3.5 h-3.5 animate-spin"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                            >
+                                <circle
+                                    cx="12"
+                                    cy="12"
+                                    r="10"
+                                    stroke="currentColor"
+                                    strokeWidth="3"
+                                    className="opacity-25"
+                                />
+                                <path
+                                    d="M4 12a8 8 0 018-8"
+                                    stroke="currentColor"
+                                    strokeWidth="3"
+                                    strokeLinecap="round"
+                                />
                             </svg>
                         )}
                     </button>
@@ -492,7 +633,8 @@ export default function ViewerPage() {
                         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 flex-shrink-0">
                             <div className="flex items-center gap-2">
                                 <span className="text-xs font-mono text-gray-500">
-                                    {selected} / {currentSlide?.replace(".html", "")}
+                                    {selected} /{" "}
+                                    {currentSlide?.replace(".html", "")}
                                 </span>
                             </div>
                             <div className="flex items-center gap-1">
@@ -502,8 +644,18 @@ export default function ViewerPage() {
                                     className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 disabled:opacity-30 transition-colors"
                                     title="되돌리기 (Undo)"
                                 >
-                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a5 5 0 015 5v2M3 10l4-4M3 10l4 4" />
+                                    <svg
+                                        className="w-3.5 h-3.5"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={2}
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M3 10h10a5 5 0 015 5v2M3 10l4-4M3 10l4 4"
+                                        />
                                     </svg>
                                 </button>
                                 <button
@@ -512,8 +664,18 @@ export default function ViewerPage() {
                                     className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 disabled:opacity-30 transition-colors"
                                     title="다시 실행 (Redo)"
                                 >
-                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 10H11a5 5 0 00-5 5v2M21 10l-4-4M21 10l-4 4" />
+                                    <svg
+                                        className="w-3.5 h-3.5"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={2}
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M21 10H11a5 5 0 00-5 5v2M21 10l-4-4M21 10l-4 4"
+                                        />
                                     </svg>
                                 </button>
                                 {hist.total > 0 && (
@@ -526,8 +688,18 @@ export default function ViewerPage() {
                                     onClick={() => setEditPanelOpen(false)}
                                     className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
                                 >
-                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                    <svg
+                                        className="w-4 h-4"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={2}
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M6 18L18 6M6 6l12 12"
+                                        />
                                     </svg>
                                 </button>
                             </div>
@@ -554,7 +726,11 @@ export default function ViewerPage() {
                                 }`}
                             >
                                 HTML
-                                {htmlDirty && <span className="ml-1 text-orange-500">*</span>}
+                                {htmlDirty && (
+                                    <span className="ml-1 text-orange-500">
+                                        *
+                                    </span>
+                                )}
                             </button>
                         </div>
 
@@ -566,35 +742,63 @@ export default function ViewerPage() {
                                     <textarea
                                         ref={editInputRef}
                                         value={editInput}
-                                        onChange={(e) => setEditInput(e.target.value)}
+                                        onChange={(e) =>
+                                            setEditInput(e.target.value)
+                                        }
                                         onKeyDown={(e) => {
-                                            if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
+                                            if (
+                                                e.key === "Enter" &&
+                                                (e.metaKey || e.ctrlKey) &&
+                                                !e.nativeEvent.isComposing
+                                            ) {
                                                 e.preventDefault();
                                                 handleEdit();
                                             }
                                         }}
-                                        placeholder={"수정할 내용을 입력하세요...\n\n예: 제목을 더 크게 만들어줘\n예: 배경색을 파란색으로 바꿔줘\n예: 본문 텍스트를 좌측 정렬로 변경"}
+                                        placeholder={
+                                            "수정할 내용을 입력하세요...\n\n예: 제목을 더 크게 만들어줘\n예: 배경색을 파란색으로 바꿔줘\n예: 본문 텍스트를 좌측 정렬로 변경"
+                                        }
                                         disabled={isEditing}
                                         rows={5}
                                         className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3.5 py-3 text-sm leading-relaxed placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent disabled:opacity-50 resize-none"
                                     />
                                     <button
                                         onClick={handleEdit}
-                                        disabled={isEditing || !editInput.trim()}
+                                        disabled={
+                                            isEditing || !editInput.trim()
+                                        }
                                         className="w-full mt-3 px-4 py-2.5 bg-orange-500 text-white text-sm font-medium rounded-xl hover:bg-orange-600 disabled:opacity-40 disabled:hover:bg-orange-500 transition-colors flex items-center justify-center gap-2"
                                     >
                                         {isEditing ? (
                                             <>
-                                                <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                                                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
-                                                    <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+                                                <svg
+                                                    className="w-4 h-4 animate-spin"
+                                                    viewBox="0 0 24 24"
+                                                    fill="none"
+                                                >
+                                                    <circle
+                                                        cx="12"
+                                                        cy="12"
+                                                        r="10"
+                                                        stroke="currentColor"
+                                                        strokeWidth="3"
+                                                        className="opacity-25"
+                                                    />
+                                                    <path
+                                                        d="M4 12a8 8 0 018-8"
+                                                        stroke="currentColor"
+                                                        strokeWidth="3"
+                                                        strokeLinecap="round"
+                                                    />
                                                 </svg>
                                                 수정 중...
                                             </>
                                         ) : (
                                             <>
                                                 수정 실행
-                                                <kbd className="text-[10px] bg-orange-600/50 px-1.5 py-0.5 rounded font-mono">⌘↵</kbd>
+                                                <kbd className="text-[10px] bg-orange-600/50 px-1.5 py-0.5 rounded font-mono">
+                                                    ⌘↵
+                                                </kbd>
                                             </>
                                         )}
                                     </button>
@@ -603,8 +807,12 @@ export default function ViewerPage() {
                                 {/* Log area */}
                                 <div className="flex-1 overflow-hidden flex flex-col border-t border-gray-200">
                                     <div className="px-4 py-2 flex-shrink-0 flex items-center gap-1.5">
-                                        <div className={`w-1.5 h-1.5 rounded-full ${isEditing ? "bg-orange-500 animate-pulse" : "bg-gray-300"}`} />
-                                        <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">Log</span>
+                                        <div
+                                            className={`w-1.5 h-1.5 rounded-full ${isEditing ? "bg-orange-500 animate-pulse" : "bg-gray-300"}`}
+                                        />
+                                        <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">
+                                            Log
+                                        </span>
                                     </div>
                                     <div
                                         ref={logRef}
@@ -618,13 +826,22 @@ export default function ViewerPage() {
                                                         className={
                                                             line.startsWith(">")
                                                                 ? "text-orange-400"
-                                                                : line.startsWith("[error]")
-                                                                ? "text-red-400"
-                                                                : line.startsWith("[done]")
-                                                                ? "text-green-400"
-                                                                : line.startsWith("[undo]") || line.startsWith("[redo]")
-                                                                ? "text-yellow-400"
-                                                                : "text-gray-500"
+                                                                : line.startsWith(
+                                                                        "[error]",
+                                                                    )
+                                                                  ? "text-red-400"
+                                                                  : line.startsWith(
+                                                                          "[done]",
+                                                                      )
+                                                                    ? "text-green-400"
+                                                                    : line.startsWith(
+                                                                            "[undo]",
+                                                                        ) ||
+                                                                        line.startsWith(
+                                                                            "[redo]",
+                                                                        )
+                                                                      ? "text-yellow-400"
+                                                                      : "text-gray-500"
                                                         }
                                                     >
                                                         {line}
@@ -645,22 +862,36 @@ export default function ViewerPage() {
                                 <div className="flex-1 overflow-hidden flex flex-col">
                                     <textarea
                                         value={htmlSource}
-                                        onChange={(e) => { setHtmlSource(e.target.value); setHtmlDirty(true); }}
+                                        onChange={(e) => {
+                                            setHtmlSource(e.target.value);
+                                            setHtmlDirty(true);
+                                        }}
                                         onKeyDown={(e) => {
-                                            if (e.key === "s" && (e.metaKey || e.ctrlKey)) {
+                                            if (
+                                                e.key === "s" &&
+                                                (e.metaKey || e.ctrlKey)
+                                            ) {
                                                 e.preventDefault();
                                                 handleSaveHtml();
                                             }
                                             // Allow Tab to insert spaces
                                             if (e.key === "Tab") {
                                                 e.preventDefault();
-                                                const target = e.target as HTMLTextAreaElement;
-                                                const start = target.selectionStart;
+                                                const target =
+                                                    e.target as HTMLTextAreaElement;
+                                                const start =
+                                                    target.selectionStart;
                                                 const end = target.selectionEnd;
                                                 const val = htmlSource;
-                                                setHtmlSource(val.substring(0, start) + "  " + val.substring(end));
+                                                setHtmlSource(
+                                                    val.substring(0, start) +
+                                                        "  " +
+                                                        val.substring(end),
+                                                );
                                                 requestAnimationFrame(() => {
-                                                    target.selectionStart = target.selectionEnd = start + 2;
+                                                    target.selectionStart =
+                                                        target.selectionEnd =
+                                                            start + 2;
                                                 });
                                                 setHtmlDirty(true);
                                             }
@@ -675,10 +906,14 @@ export default function ViewerPage() {
                                         disabled={!htmlDirty || isSavingHtml}
                                         className="w-full px-4 py-2.5 bg-orange-500 text-white text-sm font-medium rounded-xl hover:bg-orange-600 disabled:opacity-40 disabled:hover:bg-orange-500 transition-colors flex items-center justify-center gap-2"
                                     >
-                                        {isSavingHtml ? "저장 중..." : (
+                                        {isSavingHtml ? (
+                                            "저장 중..."
+                                        ) : (
                                             <>
                                                 저장
-                                                <kbd className="text-[10px] bg-orange-600/50 px-1.5 py-0.5 rounded font-mono">⌘S</kbd>
+                                                <kbd className="text-[10px] bg-orange-600/50 px-1.5 py-0.5 rounded font-mono">
+                                                    ⌘S
+                                                </kbd>
                                             </>
                                         )}
                                     </button>
