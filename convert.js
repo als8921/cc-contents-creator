@@ -22,7 +22,7 @@ async function main() {
   const ratioFlag = args.indexOf("--ratio");
   const ratioKey = ratioFlag !== -1 ? args[ratioFlag + 1] : "1:1";
   const scaleFlag = args.indexOf("--scale");
-  const scale = scaleFlag !== -1 ? Number(args[scaleFlag + 1]) : 1;
+  const scale = scaleFlag !== -1 ? Number(args[scaleFlag + 1]) : 2;
 
   const size = RATIOS[ratioKey];
   if (!size) {
@@ -59,11 +59,11 @@ async function main() {
       const pngName = file.replace(".html", ".png");
       const pngPath = path.join(pngDir, pngName);
 
-      const page = await browser.newPage();
-      await page.setViewportSize({
-        width: size.width * scale,
-        height: size.height * scale,
+      const context = await browser.newContext({
+        viewport: { width: size.width, height: size.height },
+        deviceScaleFactor: scale,
       });
+      const page = await context.newPage();
 
       const html = fs.readFileSync(htmlPath, "utf-8");
       await page.setContent(html, { waitUntil: "networkidle" });
@@ -72,10 +72,9 @@ async function main() {
       await page.screenshot({
         path: pngPath,
         type: "png",
-        clip: { x: 0, y: 0, width: size.width * scale, height: size.height * scale },
       });
 
-      await page.close();
+      await context.close();
       console.log(`  ${pngName}`);
     }));
     console.log(`Done! PNGs saved to ${pngDir}/`);
