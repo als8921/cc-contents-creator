@@ -158,6 +158,12 @@ HTML/CSS로 슬라이드를 제작하는 디자인 담당.
 }
 ```
 
+**코드 블록 줄바꿈 필수 규칙**:
+- 코드의 **각 줄은 반드시 독립된 `.code-line` div**로 만든다. 여러 줄을 하나의 `.code-line`에 넣지 않는다
+- **빈 줄(empty line)**도 빈 `.code-line` div로 표현한다: `<div class="code-line"><span class="line-num">3</span><div class="code-tokens"></div></div>`
+- `<br>` 태그로 줄바꿈을 처리하지 않는다 — 반드시 `.code-line` 단위로 분리한다
+- 줄 번호(`.line-num`)는 빈 줄 포함 모든 `.code-line`에 연속으로 매긴다
+
 **코드 블록 금지 사항**:
 - **`white-space: pre`를 사용하지 않는다** — 포매터(Prettier)가 HTML 들여쓰기를 변경하면 pre 안의 공백이 그대로 렌더링되어 레이아웃이 깨진다
 - `white-space: pre-wrap`도 사용하지 않는다
