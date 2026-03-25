@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 
 type Project = { name: string; slides: string[] };
 
@@ -14,9 +15,13 @@ const FIT_PADDING = 80;
 type EditTab = "ai" | "html";
 
 export default function ViewerPage() {
+    const searchParams = useSearchParams();
+    const router = useRouter();
+
     const [projects, setProjects] = useState<Project[]>([]);
     const [selected, setSelected] = useState<string>("");
     const [currentIdx, setCurrentIdx] = useState(0);
+    const initialized = useRef(false);
     const [scale, setScale] = useState(1);
     const [sidebarW, setSidebarW] = useState(260);
     const [dragging, setDragging] = useState(false);
@@ -42,25 +47,54 @@ export default function ViewerPage() {
     const mainRef = useRef<HTMLElement>(null);
     const [fitScale, setFitScale] = useState(1);
 
+    // Load projects and restore state from URL
     useEffect(() => {
         fetch("/api/projects")
             .then((r) => r.json())
             .then((data) => {
                 setProjects(data.projects);
-                if (data.projects.length > 0)
+                const urlProject = searchParams.get("project");
+                const urlSlide = searchParams.get("slide");
+
+                if (urlProject && data.projects.some((p: Project) => p.name === urlProject)) {
+                    setSelected(urlProject);
+                    if (urlSlide) {
+                        const proj = data.projects.find((p: Project) => p.name === urlProject);
+                        const idx = proj?.slides.indexOf(urlSlide) ?? -1;
+                        if (idx >= 0) setCurrentIdx(idx);
+                    }
+                } else if (data.projects.length > 0) {
                     setSelected(data.projects[0].name);
+                }
+                initialized.current = true;
             });
     }, []);
 
     const currentProject = projects.find((p) => p.name === selected);
     const slides = currentProject?.slides ?? [];
     const currentSlide = slides[currentIdx];
+
+    // Sync URL when project or slide changes
+    useEffect(() => {
+        if (!initialized.current || !selected) return;
+        const params = new URLSearchParams();
+        params.set("project", selected);
+        if (currentSlide) params.set("slide", currentSlide);
+        router.replace(`/viewer?${params.toString()}`, { scroll: false });
+    }, [selected, currentSlide, router]);
     const histKey = `${selected}/${currentSlide}`;
     const hist = historyState[histKey] ?? { pointer: -1, total: 0 };
     const canUndo = hist.pointer > 0;
     const canRedo = hist.total > 0 && hist.pointer < hist.total - 1;
 
-    useEffect(() => setCurrentIdx(0), [selected]);
+    const prevSelected = useRef(selected);
+    useEffect(() => {
+        // Reset slide index only when user manually switches project (not on initial load from URL)
+        if (prevSelected.current && prevSelected.current !== selected && initialized.current) {
+            setCurrentIdx(0);
+        }
+        prevSelected.current = selected;
+    }, [selected]);
 
     // Fetch history state + HTML source when slide changes
     useEffect(() => {
