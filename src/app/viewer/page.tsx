@@ -456,7 +456,7 @@ export default function ViewerPage() {
                             style={{ width: thumbW, height: thumbH }}
                         >
                             <iframe
-                                src={`/api/slide?project=${selected}&file=${s}`}
+                                src={`/api/slide?project=${selected}&file=${s}&_t=${iframeKey}`}
                                 tabIndex={-1}
                                 className="pointer-events-none absolute top-0 left-0"
                                 style={{
